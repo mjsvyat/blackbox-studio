@@ -11,7 +11,11 @@ import { Column, col, decodeLog } from '../decoder/decoder';
 import { FileStructure, blobReader, scanFile } from '../decoder/scan';
 import { toDb } from '../dsp/spectrum';
 import { T } from '../i18n/ru';
-import type { AnalysisPayload, FiltersPayload, FromWorker, LogInfo, RatesPayload, ToWorker } from './protocol';
+import type { AdvicePayload, AnalysisPayload, FiltersPayload, FromWorker, LogInfo, PidPayload, RatesPayload, ToWorker } from './protocol';
+import { HealthResult } from '../analysis/health';
+import { PidResult, analyzePid } from '../pid/analyze';
+import { simplifiedFromHeader } from '../pid/gains';
+import { advisorInputFrom, runAdvisor } from '../advisor/advisor';
 import { FilterBaseline, buildBaseline, evaluate, quantFloorPsd } from '../filters/evaluate';
 import { FilterContext, contextFromHeader, paramsFromHeader, simplifiedConsistent } from '../filters/settings';
 import { RatesWork, buildRatesBase, evalRates, newSetpoint } from '../rates/analyze';
@@ -34,6 +38,10 @@ let filtersPayload: FiltersPayload | null = null;
 let filterCtx: FilterContext | null = null;
 // для рейтов: база на текущей маске (сбрасывается при смене участка)
 let ratesWork: RatesWork | null = null;
+// PID и советчик: последние результаты анализа на текущей маске
+let lastPid: PidResult | null = null;
+let lastNoise: NoiseResult | null = null;
+let lastHealth: HealthResult | null = null;
 
 const post = (m: FromWorker, transfer: Transferable[] = []): void => ctxW.postMessage(m, transfer);
 const progress = (stage: string, fraction: number): void => post({ type: 'progress', stage, fraction });
@@ -72,6 +80,10 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
         sp.forEach((a, i) => series.set(`spN${i}`, a));
         post({ type: 'ratesEval', reqId: m.reqId, ev: evalRates(ctx, ratesWork, sp) });
       }
+    } else if (m.type === 'pidInit') {
+      if (ctx && lastPid) post({ type: 'pid', payload: pidPayload(ctx) });
+    } else if (m.type === 'adviceInit') {
+      if (ctx) post({ type: 'advice', payload: computeAdvice(ctx) });
     } else if (m.type === 'series') {
       const r = getSeries(m.keys, m.t0, m.t1, m.width);
       post({ type: 'series', reqId: m.reqId, ...r }, [r.x.buffer, ...r.ys.map((y) => y.buffer)]);
@@ -150,7 +162,15 @@ function analyze(): AnalysisPayload {
   } catch (err) {
     console.error('filters', err);
   }
-  const cards = buildSummary(c, fm, nz, h, { crossesWrap }, filtersPayload?.base ?? null);
+  lastNoise = nz;
+  lastHealth = h;
+  lastPid = null;
+  try {
+    lastPid = analyzePid(c, fm.mask);
+  } catch (err) {
+    console.error('pid', err);
+  }
+  const cards = buildSummary(c, fm, nz, h, { crossesWrap }, filtersPayload?.base ?? null, lastPid);
   lastNoiseStatus = cards.find((x) => x.id === 'noise')?.status ?? 'grey';
   if (filtersPayload) filtersPayload.noiseStatus = lastNoiseStatus;
   const dbArr = (p: { psd: Float64Array } | null): Float32Array | null => (p ? Float32Array.from(p.psd, toDb) : null);
@@ -217,6 +237,33 @@ function computeRates(c: LogContext): { payload: RatesPayload | null; why?: stri
   // «новый» setpoint до первого пересчёта песочницы = записанный
   for (let a = 0; a < 3; a++) if (!series.has(`spN${a}`) && series.has(`sp${a}`)) series.set(`spN${a}`, series.get(`sp${a}`)!);
   return { payload: { ...ratesWork.base, fwCode: c.fw.code } };
+}
+
+function pidPayload(c: LogContext): PidPayload {
+  return { ...lastPid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header) };
+}
+
+function computeAdvice(c: LogContext): AdvicePayload {
+  const nz = lastNoise!, h = lastHealth!;
+  const fp = filtersPayload;
+  const sp = simplifiedFromHeader(c.log.header);
+  const res = runAdvisor(advisorInputFrom(c, nz, h, fp ? { params: fp.params, status: fp.base.validation.status, reason: fp.base.validation.reason } : null, lastPid, sp));
+  // ожидаемый эффект советов по фильтрам — точной моделью (тот же код, что в песочнице)
+  if (fp && filterBase && filterCtx) {
+    const cur = filterBase.current;
+    const mx = (a: number[]): number => Math.max(...a.filter((x) => Number.isFinite(x)));
+    for (const a of res.advice) {
+      const keys = Object.keys(a.changes);
+      if (!keys.length || !keys.every((k) => k in fp.params || k.startsWith('simplified_') && k.endsWith('filter_multiplier'))) continue;
+      try {
+        const { ev } = evaluate(c, { ...fp.params, ...a.changes }, filterCtx, filterBase.segments, filterBase.n, cur.op);
+        a.effect = { delay100: [cur.delay.gyro['100'], ev.delay.gyro['100']], delayD100: [cur.delay.dterm['100'], ev.delay.dterm['100']], dterm: [mx(cur.rmsDterm), mx(ev.rmsDterm)], gyro: [mx(cur.rmsGyro), mx(ev.rmsGyro)] };
+      } catch (err) {
+        console.error('advice effect', err);
+      }
+    }
+  }
+  return { ...res, fwCode: c.fw.code };
 }
 
 /** производные ряды в физических единицах */

@@ -10,6 +10,9 @@ import type { FilterBaseline, FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
 import type { RatesBase, RatesEval } from '../rates/analyze';
 import type { RateProfile } from '../rates/rates';
+import type { PidResult } from '../pid/analyze';
+import type { SimplifiedPids } from '../pid/gains';
+import type { AdvisorResult } from '../advisor/advisor';
 
 export type ToWorker =
   | { type: 'scan'; file: Blob; name: string }
@@ -19,6 +22,8 @@ export type ToWorker =
   | { type: 'filtersInit' }
   | { type: 'filtersEval'; reqId: number; params: FilterParams }
   | { type: 'ratesInit' }
+  | { type: 'pidInit' }
+  | { type: 'adviceInit' }
   | { type: 'ratesEval'; reqId: number; profile: RateProfile };
 
 export interface FiltersPayload {
@@ -34,6 +39,16 @@ export interface FiltersPayload {
 
 /** рейты: база на текущих настройках (см. rates/analyze.ts) */
 export interface RatesPayload extends RatesBase {
+  fwCode: number;
+}
+
+/** отработка PID (pid/analyze.ts) + настройки для советчика */
+export interface PidPayload extends PidResult {
+  fwCode: number;
+  simplified: { s: SimplifiedPids; dExtraName: string } | null;
+}
+
+export interface AdvicePayload extends AdvisorResult {
   fwCode: number;
 }
 
@@ -104,6 +119,8 @@ export type FromWorker =
   | { type: 'filtersEval'; reqId: number; ev: FilterEval }
   | { type: 'rates'; payload: RatesPayload | null; why?: string }
   | { type: 'ratesEval'; reqId: number; ev: RatesEval }
+  | { type: 'pid'; payload: PidPayload }
+  | { type: 'advice'; payload: AdvicePayload }
   | { type: 'error'; message: string };
 
 export type { LogEvent };

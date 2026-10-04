@@ -1,7 +1,7 @@
 // Состояние приложения и связь с воркером.
 
 import type { FileStructure } from '../decoder/scan';
-import type { AnalysisPayload, FiltersPayload, FromWorker, LogInfo, RatesPayload, ToWorker } from '../worker/protocol';
+import type { AdvicePayload, AnalysisPayload, FiltersPayload, FromWorker, LogInfo, PidPayload, RatesPayload, ToWorker } from '../worker/protocol';
 import type { FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
 import type { RatesEval } from '../rates/analyze';
@@ -34,6 +34,8 @@ export interface AppState {
   ratesBusy: boolean;
   /** выбранный манёвр (индекс в rates.maneuvers) */
   ratesManeuver: number;
+  pid: PidPayload | null;
+  advice: AdvicePayload | null;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -60,6 +62,8 @@ export const state: AppState = {
   ratesEval: null,
   ratesBusy: false,
   ratesManeuver: 0,
+  pid: null,
+  advice: null,
 };
 
 const listeners = new Set<Listener>();
@@ -98,10 +102,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     }
     case 'opened':
-      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
+      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
       break;
     case 'analysis':
-      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0 });
+      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null });
       break;
     case 'filters':
       if (state.sandbox) {
@@ -120,6 +124,12 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     case 'ratesEval':
       if (m.reqId === ratesReq) set({ ratesEval: m.ev, ratesBusy: false });
+      break;
+    case 'pid':
+      set({ pid: m.payload, progress: null });
+      break;
+    case 'advice':
+      set({ advice: m.payload, progress: null });
       break;
     case 'series': {
       const cb = pending.get(m.reqId);
@@ -207,4 +217,21 @@ export function requestRatesEval(profile: RateProfile, delayMs = 150): void {
     ratesReq++;
     send({ type: 'ratesEval', reqId: ratesReq, profile });
   }, delayMs);
+}
+
+let pidRequested = false, adviceRequested = false;
+subscribe((s, ch) => {
+  if (ch.has('pid') && !s.pid) pidRequested = false;
+  if (ch.has('advice') && !s.advice) adviceRequested = false;
+});
+export function ensurePid(): void {
+  if (state.pid || pidRequested || !state.info) return;
+  pidRequested = true;
+  send({ type: 'pidInit' });
+}
+export function ensureAdvice(): void {
+  if (state.advice || adviceRequested || !state.info) return;
+  adviceRequested = true;
+  set({ progress: { stage: 'Советчик', fraction: 0.5 } });
+  send({ type: 'adviceInit' });
 }
