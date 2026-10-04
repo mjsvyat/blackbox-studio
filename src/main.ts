@@ -8,6 +8,7 @@ import { flightView, motorsView } from './ui/views/flight';
 import { noiseView } from './ui/views/noise';
 import { summaryView } from './ui/views/summary';
 import { filtersView } from './ui/views/filters';
+import { ratesView } from './ui/views/rates';
 
 const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan?: string[] }[] = [
   { id: 'file', title: T.tabs.file, needsLog: false },
@@ -15,10 +16,10 @@ const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan
   { id: 'noise', title: T.tabs.noise, needsLog: true },
   { id: 'filters', title: T.tabs.filters, needsLog: true },
   { id: 'pid', title: T.tabs.pid, stage: 4, needsLog: true, plan: ['step response деконволюцией (как PIDtoolbox)', 'overshoot, время нарастания, трекинг setpoint', 'вклад P/I/D/F'] },
-  { id: 'rates', title: T.tabs.rates, stage: 3, needsLog: true, plan: ['кривые стик → °/с для всех rates_type', 'гистограмма положения стиков', 'песочница рейтов: «на этом флипе было бы 1100 °/с вместо 850»'] },
+  { id: 'rates', title: T.tabs.rates, needsLog: true },
   { id: 'motors', title: T.tabs.motors, needsLog: true },
   { id: 'flight', title: T.tabs.flight, needsLog: true },
-  { id: 'tuning', title: T.tabs.tuning, stage: 4, needsLog: true, plan: ['рекомендации по правилам с ID и версией', 'готовый CLI-блок и положения слайдеров Simplified Tuning', 'песочница: точный пересчёт фильтров/рейтов, прогноз PID с полосой неопределённости (этап 7)'] },
+  { id: 'tuning', title: T.tabs.tuning, stage: 4, needsLog: true, plan: ['рекомендации по правилам с ID и версией', 'готовый CLI-блок и положения слайдеров Simplified Tuning', 'общая песочница: фильтры + рейты + прогноз PID с полосой неопределённости (этап 7)'] },
   { id: 'compare', title: T.tabs.compare, stage: 5, needsLog: true, plan: ['сессии борта в IndexedDB, экспорт/импорт JSON', 'до / прогноз / после на одном графике', 'diff настроек из заголовков, честное сравнение по бинам газа'] },
 ];
 
@@ -106,6 +107,7 @@ function render(): void {
     case 'summary': main.append(summaryView()); break;
     case 'noise': main.append(noiseView(track)); break;
     case 'filters': main.append(filtersView(track)); break;
+    case 'rates': main.append(ratesView(track)); break;
     case 'flight': main.append(flightView(track)); break;
     case 'motors': main.append(motorsView(track)); break;
     default:
@@ -146,7 +148,7 @@ function renderProgress(): void {
   progressLabel.textContent = `${p.stage || T.loading} · ${Math.round(p.fraction * 100)} %`;
 }
 
-const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis'];
+const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy'];
 subscribe((_s, changed) => {
   if (changed.has('progress')) renderProgress();
   if (RERENDER.some((k) => changed.has(k))) {

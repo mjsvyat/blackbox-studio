@@ -2,7 +2,6 @@
 // пересчёт Simplified Tuning (simplified_tuning.c), генерация CLI.
 
 import { nums } from '../decoder/header';
-import { clampParam, paramAvailable } from '../params/registry';
 
 /** плоский набор значений под именами CLI */
 export type FilterParams = Record<string, number>;
@@ -138,26 +137,6 @@ export function simplifiedConsistent(p: FilterParams): { gyro: boolean; dterm: b
   };
 }
 
-export interface CliResult {
-  lines: string[];
-  changed: { name: string; from: number | undefined; to: number }[];
-  skipped: { name: string; why: string }[];
-}
-
-/** блок CLI: только изменённые параметры, в пределах диапазона своей версии */
-export function cliDiff(from: FilterParams, to: FilterParams, fwCode: number): CliResult {
-  const changed: CliResult['changed'] = [];
-  const skipped: CliResult['skipped'] = [];
-  for (const [k, v] of Object.entries(to)) {
-    if (from[k] === v) continue;
-    if (!paramAvailable(k, fwCode)) {
-      skipped.push({ name: k, why: 'нет в этой версии прошивки' });
-      continue;
-    }
-    const c = clampParam(k, v);
-    changed.push({ name: k, from: from[k], to: c });
-  }
-  const lines = changed.map((c) => `set ${c.name} = ${c.to}`);
-  if (lines.length) lines.push('save');
-  return { lines, changed, skipped };
-}
+// генератор CLI общий для всех вкладок — params/registry.ts
+export { cliDiff } from '../params/registry';
+export type { CliResult } from '../params/registry';

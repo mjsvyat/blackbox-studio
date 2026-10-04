@@ -92,5 +92,47 @@
         "why": "стартовые: на логе 2026.6.1 2 кГц модель даёт 95–97 %, на 1 кГц 4.5.2 — 65–84 % из-за алиасинга (проверено прореживанием 2 кГц-лога)"
       }
     ]
+  },
+  "rates": {
+    "steadyMs": 40,
+    "minDeflection": 0.05,
+    "matchAbsDps": 2,
+    "matchRelPct": 1,
+    "matchGreen": 98,
+    "matchRed": 90,
+    "minCheckSamples": 300,
+    "_unit": "match — % кадров со «стоячим» (не менявшимся steadyMs) и отклонённым (≥ minDeflection) стиком, где формула рейтов из заголовка даёт записанный setpoint с точностью max(matchAbsDps, matchRelPct % значения); худшая ось",
+    "nonRateModes": [
+      "ANGLE",
+      "HORIZON",
+      "HEADFREE",
+      "GPSRESCUE",
+      "GPSHOME",
+      "GPSHOLD",
+      "FAILSAFE",
+      "CHIRP",
+      "PASSTHRU",
+      "FPVANGLEMIX",
+      "HEADADJ"
+    ],
+    "histBinPct": 5,
+    "centerDeflection": 0.1,
+    "fullDeflection": 0.95,
+    "fullStickSharePct": 2,
+    "underusedP99": 0.6,
+    "_unitUsage": "fullStickSharePct — % времени полёта со стиком roll/pitch у упора (≥ fullDeflection), выше — «упираешься в максимум»; underusedP99 — если 99-й перцентиль хода стика ниже, максимум рейтов не используется",
+    "maneuverPeakShare": 0.6,
+    "maneuverEdgeShare": 0.15,
+    "maneuverMergeS": 0.3,
+    "maneuverMax": 8,
+    "_unitManeuver": "манёвр — участок, где |setpoint| > maneuverPeakShare × max rate оси; границы — где |setpoint| падает ниже maneuverEdgeShare × max rate",
+    "gyroLagShare": 0.9,
+    "_unitGyroLag": "если пик гироскопа в манёвре < gyroLagShare × пик setpoint — «моторам не хватает тяги, рейты выше не помогут»",
+    "_history": [
+      {
+        "version": "1.0",
+        "why": "стартовые: на 8 логах (2026.6.1 и 4.5.2) формула Actual из заголовка даёт записанный setpoint на стоячем стике с ошибкой ≈ округления (0.25–0.5 °/с СКЗ); расхождения — только в HEADFREE/GPS Rescue и при быстрых движениях стика (сглаживание RC)"
+      }
+    ]
   }
 }
