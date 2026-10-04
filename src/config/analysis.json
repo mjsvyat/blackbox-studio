@@ -1,0 +1,96 @@
+{
+  "_comment": "Пороги анализа и светофора. Меняются здесь, а не в коде. У каждого порога — история изменений в _history.",
+  "version": "1.0",
+  "flightMask": {
+    "throttleMinPct": 8,
+    "motorMinNorm": 0.2,
+    "fillGapS": 1,
+    "crashAccG": 6,
+    "crashBeforeS": 0.3,
+    "crashAfterS": 1,
+    "holePadS": 0.05,
+    "loopGapFactor": 4,
+    "edgeTrimS": 0.5,
+    "minSegmentS": 1
+  },
+  "noise": {
+    "bandLowHz": 80,
+    "dtermBandLowHz": 60,
+    "unfiltRms": {
+      "green": 15,
+      "red": 40,
+      "_unit": "°/с СКЗ gyroUnfilt в полосе 80 Гц…Найквист"
+    },
+    "filtRms": {
+      "green": 1.5,
+      "red": 4,
+      "_unit": "°/с СКЗ gyroADC (после фильтров) в той же полосе"
+    },
+    "peakMinProminenceDb": 8,
+    "burstRatio": 10,
+    "gyroClipDps": 1990,
+    "motorHarmonicTolerance": 0.1,
+    "frameResonanceMaxCv": 0.08,
+    "_history": []
+  },
+  "motors": {
+    "saturationNorm": 0.98,
+    "saturationPct": {
+      "green": 1,
+      "red": 5,
+      "_unit": "% времени полёта, когда хотя бы один мотор упёрся в 100 %"
+    },
+    "hoverSpreadPct": {
+      "green": 10,
+      "red": 20,
+      "_unit": "разброс средних команд моторов на висении/крейсере, % от среднего"
+    },
+    "desyncMinMs": 15
+  },
+  "power": {
+    "minCellUnderLoad": {
+      "green": 3.5,
+      "red": 3.2,
+      "_unit": "В на банку, 1-й перцентиль в полёте"
+    },
+    "rippleP99": {
+      "green": 1.5,
+      "red": 3,
+      "_unit": "В на 6S (масштабируется по числу банок), размах vbat в окне 20 мс, 99-й перцентиль"
+    },
+    "currentClipFrames": 20,
+    "resistanceMOhm": {
+      "green": 25,
+      "red": 45,
+      "_unit": "мОм пакет+проводка (регрессия dV/dI), 6S"
+    }
+  },
+  "link": {
+    "rssiLowPct": 30,
+    "lowShare": {
+      "green": 0.5,
+      "red": 3,
+      "_unit": "% времени с RSSI ниже rssiLowPct"
+    }
+  },
+  "integrity": {
+    "lostPct": {
+      "green": 0.1,
+      "red": 2,
+      "_unit": "% байт лога, пропущенных при ресинхронизации"
+    }
+  },
+  "filters": {
+    "maxSimSeconds": 60,
+    "matchGreen": 90,
+    "matchRed": 70,
+    "minGoodLogHz": 1600,
+    "_unit": "match — % срезанного фильтрами, который модель воспроизвела (за вычетом шума округления лога); худшая ось",
+    "_history": [
+      {
+        "version": "1.0",
+        "why": "стартовые: на логе 2026.6.1 2 кГц модель даёт 95–97 %, на 1 кГц 4.5.2 — 65–84 % из-за алиасинга (проверено прореживанием 2 кГц-лога)"
+      }
+    ]
+  }
+}
