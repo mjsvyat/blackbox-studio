@@ -41,6 +41,8 @@ export interface StepResult {
   mean: Float32Array;
   /** разброс оценки по частям полёта (СКО) — полоса на графике */
   std: Float32Array;
+  /** кривые по частям полёта (для полосы прогноза модели) */
+  parts: Float32Array[];
   /** секунд с движением стиков (основа оценки) */
   activeS: number;
   /** пригодных секунд всего */
@@ -214,7 +216,7 @@ export function stepResponse(sp: ArrayLike<number>, gy: ArrayLike<number>, use: 
       std[i] = Math.sqrt(v / (hs.length - 1));
     }
   }
-  return { t, mean, std, activeS: active * (blk / fsd), usedS: usedD / fsd };
+  return { t, mean, std, parts: hs.map((x) => Float32Array.from(x)), activeS: active * (blk / fsd), usedS: usedD / fsd };
 }
 
 export function stepMetrics(r: { t: ArrayLike<number>; mean: ArrayLike<number> }, settleFromS = 0.2): StepMetrics {

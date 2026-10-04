@@ -18,7 +18,7 @@ const SIMPL = { s: { mode: 2, master: 100, pi: 100, i: 100, d: 100, dExtra: 100,
 
 function pidWith(os: number, settle: number, enough = true, delay = 12): PidResult {
   const ax = (axis: number) => ({
-    axis, step: { t: new Float32Array(1), mean: new Float32Array(1), std: new Float32Array(1), activeS: enough ? 60 : 5, usedS: 60 },
+    axis, step: { t: new Float32Array(1), mean: new Float32Array(1), std: new Float32Array(1), parts: [], activeS: enough ? 60 : 5, usedS: 60 },
     metrics: { overshootPct: os, peak: 1 + os / 100, peakMs: 40, delayMs: delay, riseMs: 15, settle }, enough, stdAtPeak: 0.02,
     trackRms: 5, spRms: 50, contrib: { P: 10, I: 10, D: 10, F: 5 }, ffJitter: 0.2,
   });

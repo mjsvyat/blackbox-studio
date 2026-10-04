@@ -6,7 +6,7 @@
 import cfg from '../config/analysis.json';
 import type { BoardKnowledge } from '../advisor/advisor';
 import { CliResult, cliDiff } from '../params/registry';
-import { Comparability, MetricRow, PlanCheck, comparability, metricRows, planCheck } from '../sessions/compare';
+import { Comparability, MetricRow, PlanCheck, comparability, metricRows, pidBandScale, planCheck } from '../sessions/compare';
 import type { SessionRecord } from '../sessions/db';
 import type { SessionSnapshot } from '../sessions/snapshot';
 
@@ -191,14 +191,22 @@ export function ruleStats(sessions: SessionRecord[], incidents: Incident[]): Rec
   return out;
 }
 
-/** знание о борте для советчика: правила «с осторожностью» по статистике + профиль */
-export function boardKnowledge(stats: Record<string, RuleStat>, profile: { disabledRules?: string[]; dSensitive?: boolean } = {}): BoardKnowledge {
+/** соседние пары сессий борта (по времени полёта) — для калибровки прогноза */
+export function sessionPairs(sessions: SessionRecord[]): { a: SessionSnapshot; b: SessionSnapshot }[] {
+  const list = [...sessions].sort((x, y) => (x.snap.source.datetime || x.savedAt).localeCompare(y.snap.source.datetime || y.savedAt));
+  const out: { a: SessionSnapshot; b: SessionSnapshot }[] = [];
+  for (let i = 1; i < list.length; i++) if (list[i].projectId === list[i - 1].projectId) out.push({ a: list[i - 1].snap, b: list[i].snap });
+  return out;
+}
+
+/** знание о борте для советчика: правила «с осторожностью» по статистике + профиль + калибровка */
+export function boardKnowledge(stats: Record<string, RuleStat>, profile: { disabledRules?: string[]; dSensitive?: boolean } = {}, sessions: SessionRecord[] = []): BoardKnowledge {
   const A = cfg.advisor;
   const caution: BoardKnowledge['caution'] = {};
   for (const [id, s] of Object.entries(stats)) {
     if (s.n >= A.cautionMinApplied && s.worse / s.n >= A.cautionWorseShare) caution[id] = { worse: s.worse, n: s.n, incidents: s.incidents };
   }
-  return { caution, disabledRules: profile.disabledRules ?? [], dSensitive: profile.dSensitive ?? false };
+  return { caution, disabledRules: profile.disabledRules ?? [], dSensitive: profile.dSensitive ?? false, pidBandScale: pidBandScale(sessionPairs(sessions)).scale };
 }
 
 /** точность прогнозов фильтров на этом борту (медиана по парам с применённым планом) */

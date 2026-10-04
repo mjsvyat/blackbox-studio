@@ -90,6 +90,8 @@ export interface MetricRow {
   b: number;
   /** прогноз для B (по плану A), если есть */
   pred?: number;
+  /** полоса прогноза (модель PID) */
+  band?: { lo: number; hi: number };
   verdict: Verdict;
   /** зависит от характера полёта (сравнивать осторожно) */
   flightDependent?: boolean;
@@ -132,10 +134,18 @@ export function metricRows(a: SessionSnapshot, b: SessionSnapshot): MetricRow[] 
     for (let ax = 0; ax < 3; ax++) {
       const pa = a.pid.axes[ax], pb = b.pid.axes[ax];
       if (!pa.enough || !pb.enough) continue;
-      push('overshoot', pa.overshootPct, pb.overshootPct, true, ' %', 0, ax, undefined, false, T.overshoot);
-      push('stepDelay', pa.delayMs, pb.delayMs, true, ' мс', 1, ax, undefined, false, T.stepDelay);
+      // прогноз PID (модель оси) — только при применённом плане
+      const pp = st === 'applied' || st === 'partial' ? a.plan?.pid?.find((x) => x.axis === ax) : undefined;
+      push('overshoot', pa.overshootPct, pb.overshootPct, true, ' %', 0, ax, pp?.overshoot.mid, false, T.overshoot);
+      push('stepDelay', pa.delayMs, pb.delayMs, true, ' мс', 1, ax, pp?.delayMs.mid, false, T.stepDelay);
       // уровень: лучше — ближе к 1
-      rows.push({ id: 'settle', axis: ax, a: pa.settle, b: pb.settle, verdict: Math.abs(pb.settle - pa.settle) < T.settle ? 'same' : verdict(Math.abs(1 - pa.settle), Math.abs(1 - pb.settle), true), unit: '', digits: 2 });
+      rows.push({ id: 'settle', axis: ax, a: pa.settle, b: pb.settle, pred: pp?.settle.mid, verdict: Math.abs(pb.settle - pa.settle) < T.settle ? 'same' : verdict(Math.abs(1 - pa.settle), Math.abs(1 - pb.settle), true), unit: '', digits: 2 });
+      if (pp) {
+        const last = rows.length;
+        rows[last - 3].band = pp.overshoot;
+        rows[last - 2].band = pp.delayMs;
+        rows[last - 1].band = pp.settle;
+      }
       push('track', pa.trackRms, pb.trackRms, true, ' °/с', 1, ax, undefined, true);
     }
   }
@@ -170,4 +180,27 @@ export function predictedSpectrum(a: SessionSnapshot, axis: number, kind: 'gyro'
     const j = Math.round((i * a.noise.df) / pf.df);
     return j < d.length ? v + d[j] : NaN;
   });
+}
+
+/**
+ * Калибровка полосы прогноза PID по истории борта: на парах «план применён» смотрим, во
+ * сколько полуширин полосы промахнулся прогноз перерегулирования. Полоса расширяется так,
+ * чтобы ~80 % прошлых фактов в неё попадали (не меньше 1, не больше maxBandScale).
+ */
+export function pidBandScale(pairs: { a: SessionSnapshot; b: SessionSnapshot }[]): { scale: number; n: number } {
+  const z: number[] = [];
+  for (const { a, b } of pairs) {
+    const st = planCheck(a, b).state;
+    if (st !== 'applied' || !a.plan?.pid || !b.pid) continue;
+    for (const f of a.plan.pid) {
+      const pb = b.pid.axes[f.axis];
+      if (!pb?.enough) continue;
+      const half = Math.max(cfg.sysid.bandMinPp, (f.overshoot.hi - f.overshoot.lo) / 2);
+      z.push(Math.abs(pb.overshootPct - f.overshoot.mid) / half);
+    }
+  }
+  if (!z.length) return { scale: 1, n: 0 };
+  z.sort((x, y) => x - y);
+  const q = z[Math.min(z.length - 1, Math.floor(0.8 * z.length))];
+  return { scale: Math.min(cfg.sysid.maxBandScale, Math.max(1, q)), n: z.length };
 }

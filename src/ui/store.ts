@@ -12,6 +12,7 @@ import { Incident, autoAnalyze, boardKnowledge, lastGood, ruleStats } from '../i
 import { buildCaseFiles, caseFolderName } from '../incidents/caseExport';
 import { zip } from '../incidents/zip';
 import { casePlots } from './charts/png';
+import type { AxisForecast } from '../sysid/predict';
 import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
 
@@ -59,6 +60,10 @@ export interface AppState {
   rollbackFor: string | null;
   /** знание о борте открытого лога (для советчика) */
   board: BoardKnowledge | null;
+  /** песочница PID: изменения CLI и прогноз модели */
+  pidSandbox: Record<string, number> | null;
+  pidForecast: AxisForecast[] | null;
+  pidBusy: boolean;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -99,6 +104,9 @@ export const state: AppState = {
   incidentForm: null,
   rollbackFor: null,
   board: null,
+  pidSandbox: null,
+  pidForecast: null,
+  pidBusy: false,
 };
 
 const listeners = new Set<Listener>();
@@ -137,10 +145,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     }
     case 'opened':
-      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
+      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidSandbox: null, pidForecast: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
       break;
     case 'analysis':
-      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null });
+      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidForecast: null });
       break;
     case 'filters':
       if (state.sandbox) {
@@ -162,6 +170,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     case 'pid':
       set({ pid: m.payload, progress: null });
+      if (state.pidSandbox) requestPidForecast(state.pidSandbox, 0);
+      break;
+    case 'pidPredict':
+      if (m.reqId === pidReq) set({ pidForecast: m.axes, pidBusy: false });
       break;
     case 'advice':
       set({ advice: m.payload, progress: null });
@@ -291,7 +303,8 @@ async function currentBoard(): Promise<BoardKnowledge | null> {
   const st = await db();
   const p = (await st.projects()).find((x) => x.craftKey === craftKeyOf(state.info!));
   if (!p) return null;
-  return boardKnowledge(ruleStats(await st.sessions(p.id), await st.incidents(p.id)), p.profile ?? {});
+  const ss = await st.sessions(p.id);
+  return boardKnowledge(ruleStats(ss, await st.incidents(p.id)), p.profile ?? {}, ss);
 }
 
 // --- сессии (этап 5) ---
@@ -441,4 +454,17 @@ export async function exportCase(i: Incident): Promise<void> {
   a.download = `${caseFolderName(i)}.zip`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// --- прогноз PID (этап 7) ---
+let pidReq = 0;
+let pidTimer: ReturnType<typeof setTimeout> | null = null;
+export function requestPidForecast(changes: Record<string, number>, delayMs = 150): void {
+  set({ pidSandbox: changes, pidBusy: true });
+  if (pidTimer) clearTimeout(pidTimer);
+  pidTimer = setTimeout(async () => {
+    const board = state.board ?? (await currentBoard());
+    pidReq++;
+    send({ type: 'pidPredict', reqId: pidReq, changes, bandScale: board?.pidBandScale ?? 1 });
+  }, delayMs);
 }

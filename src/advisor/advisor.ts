@@ -43,6 +43,8 @@ export interface Advice {
   caution?: { worse: number; n: number; incidents: string[] };
   /** ожидаемый эффект по точной модели (фильтры) — заполняет воркер */
   effect?: { delay100: [number, number]; delayD100: [number, number]; dterm: [number, number]; gyro: [number, number] };
+  /** прогноз step response по модели оси (этап 7) — заполняет конвейер */
+  forecast?: { axis: number; now: { overshoot: number; delayMs: number; settle: number }; overshoot: Range; delayMs: Range; settle: Range }[];
   priority: number;
 }
 
@@ -66,7 +68,11 @@ export interface AdvisorInput {
   board?: BoardKnowledge;
 }
 
+export interface Range { mid: number; lo: number; hi: number }
+
 export interface BoardKnowledge {
+  /** во сколько раз расширять полосу прогноза PID (калибровка по истории, ≥ 1) */
+  pidBandScale?: number;
   /** правила, отключённые для этого борта */
   disabledRules?: string[];
   /** D на этом борту поднимать нельзя (греет моторы) */

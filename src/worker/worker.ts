@@ -4,7 +4,9 @@
 
 import { LogContext, buildContext } from '../analysis/context';
 import { idxAt } from '../analysis/flightMask';
-import { Analysis, adviseLog, analyzeLog, snapshotLog } from '../analysis/pipeline';
+import { Analysis, adviseLog, analyzeLog, pidForecastCurves, snapshotLog } from '../analysis/pipeline';
+import { SAME } from '../sysid/axisModel';
+import { forecastAxis } from '../sysid/predict';
 import { Column, col, decodeLog } from '../decoder/decoder';
 import { FileStructure, blobReader, scanFile } from '../decoder/scan';
 import { toDb } from '../dsp/spectrum';
@@ -79,6 +81,8 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
       }
     } else if (m.type === 'pidInit') {
       if (ctx && cur?.pid) post({ type: 'pid', payload: pidPayload(ctx) });
+    } else if (m.type === 'pidPredict') {
+      if (ctx && cur) post({ type: 'pidPredict', reqId: m.reqId, axes: pidForecastCurves(cur, m.changes, m.bandScale) });
     } else if (m.type === 'adviceInit') {
       if (ctx) post({ type: 'advice', payload: computeAdvice(ctx, m.board) });
     } else if (m.type === 'snapshot') {
@@ -230,7 +234,17 @@ function computeRates(c: LogContext): { payload: RatesPayload | null; why?: stri
 }
 
 function pidPayload(c: LogContext): PidPayload {
-  return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header) };
+  const sy = cur!.sysid;
+  const model = sy ? {
+    t: sy.t,
+    axes: sy.axes.map((m) => ({
+      ...forecastAxis(m, SAME, sy.t),
+      tauMs: m.plant.a > 0 ? (-1000 / m.fs) / Math.log(m.plant.a) : NaN,
+      plantDelayMs: (m.plant.d / m.fs) * 1000,
+      pFit: m.ctrl.pFit, dFit: m.ctrl.dFit, fFit: m.ctrl.fFit,
+    })),
+  } : null;
+  return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header), model };
 }
 
 let lastBoardKey = '';
@@ -247,7 +261,7 @@ function snapshot(c: LogContext, board?: BoardKnowledge): SessionSnapshot {
   computeAdvice(c, board);
   const L = structure?.logs.find((l) => l.index === logIndex);
   const byteEnd = L ? (L.crossesWrap && L.wrapBoundary ? L.wrapBoundary : L.end) : undefined;
-  return snapshotLog(cur!, lastAdvice!, { fileName, logIndex, byteStart: L?.start, byteEnd }, (what, err) => console.error(what, err));
+  return snapshotLog(cur!, lastAdvice!, { fileName, logIndex, byteStart: L?.start, byteEnd }, (what, err) => console.error(what, err), board?.pidBandScale ?? 1);
 }
 
 /** производные ряды в физических единицах */

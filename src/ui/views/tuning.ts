@@ -3,7 +3,7 @@
 // как проверить, ID и версия правила; общий CLI для выбранных в эту итерацию.
 
 import type { Advice } from '../../advisor/advisor';
-import { T } from '../../i18n/ru';
+import { AXIS_NAMES, T } from '../../i18n/ru';
 import { cliDiff, cliValue, paramByName } from '../../params/registry';
 import { fmt, h } from '../dom';
 import { helpBtn } from '../help';
@@ -43,7 +43,9 @@ export function tuningView(): HTMLElement {
         sec(T.adv.seen, t.seen(x)),
         sec(T.adv.why, t.why),
         sec(T.adv.change, [t.change(x), tbl, sliders]),
-        sec(T.adv.expect, [t.expect(x), effect, isPid && changes.length ? h('div', { class: 'muted small' }, T.adv.pidForecast) : null]),
+        sec(T.adv.expect, [t.expect(x), effect,
+          a.forecast?.length ? h('div', { class: 'small', style: 'font-style:italic' }, a.forecast.filter((f) => f.axis < 2).map((f) => h('div', null, T.adv.forecast(AXIS_NAMES[f.axis], f.now.overshoot, `${f.overshoot.mid.toFixed(0)} (${f.overshoot.lo.toFixed(0)}–${f.overshoot.hi.toFixed(0)})`, f.now.delayMs, `${f.delayMs.mid.toFixed(1)} (${f.delayMs.lo.toFixed(1)}–${f.delayMs.hi.toFixed(1)})`))))
+            : isPid && changes.length ? h('div', { class: 'muted small' }, T.adv.pidForecast) : null]),
         sec(T.adv.risk, t.risk),
         sec(T.adv.verify, t.verify),
       ] : null,

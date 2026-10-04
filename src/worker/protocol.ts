@@ -14,6 +14,7 @@ import type { PidResult } from '../pid/analyze';
 import type { SimplifiedPids } from '../pid/gains';
 import type { AdvisorResult, BoardKnowledge } from '../advisor/advisor';
 import type { SessionSnapshot } from '../sessions/snapshot';
+import type { AxisForecast } from '../sysid/predict';
 
 export type ToWorker =
   | { type: 'scan'; file: Blob; name: string }
@@ -25,6 +26,7 @@ export type ToWorker =
   | { type: 'ratesInit' }
   | { type: 'pidInit' }
   | { type: 'adviceInit'; board?: BoardKnowledge }
+  | { type: 'pidPredict'; reqId: number; changes: Record<string, number>; bandScale: number }
   | { type: 'snapshot'; reqId: number; board?: BoardKnowledge }
   | { type: 'ratesEval'; reqId: number; profile: RateProfile };
 
@@ -48,6 +50,8 @@ export interface RatesPayload extends RatesBase {
 export interface PidPayload extends PidResult {
   fwCode: number;
   simplified: { s: SimplifiedPids; dExtraName: string } | null;
+  /** модель оси (этап 7): кривая модели на текущих коэффициентах и качество */
+  model: { t: number[]; axes: (AxisForecast & { tauMs: number; plantDelayMs: number; pFit: number; dFit: number; fFit: number })[] } | null;
 }
 
 export interface AdvicePayload extends AdvisorResult {
@@ -122,6 +126,7 @@ export type FromWorker =
   | { type: 'rates'; payload: RatesPayload | null; why?: string }
   | { type: 'ratesEval'; reqId: number; ev: RatesEval }
   | { type: 'pid'; payload: PidPayload }
+  | { type: 'pidPredict'; reqId: number; axes: AxisForecast[] }
   | { type: 'advice'; payload: AdvicePayload }
   | { type: 'snapshot'; reqId: number; snap: SessionSnapshot }
   | { type: 'error'; message: string };

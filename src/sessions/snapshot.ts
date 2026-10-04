@@ -72,7 +72,11 @@ export interface PlanSnapshot {
     delay100: number;
     delayD100: number;
   } | null;
+  /** прогноз step response по модели оси (этап 7): по осям, где модель годна */
+  pid?: { axis: number; overshoot: Rng; delayMs: Rng; settle: Rng }[];
 }
+
+export interface Rng { mid: number; lo: number; hi: number }
 
 export interface SessionSnapshot {
   v: number;
@@ -105,6 +109,7 @@ export interface SessionSnapshot {
 
 const r1 = (x: number): number => Math.round(x * 10) / 10;
 const r3 = (x: number): number => Math.round(x * 1000) / 1000;
+const rr = (x: Rng, f = r1): Rng => ({ mid: f(x.mid), lo: f(x.lo), hi: f(x.hi) });
 const arr = (a: ArrayLike<number>, round = r1): number[] => Array.from(a, (v) => (Number.isFinite(v) ? round(v) : NaN));
 
 /** прореживание спектра (дБ) до шага ~targetDf: среднее мощности в группе */
@@ -186,6 +191,8 @@ export interface SnapshotInput {
   advice: AdvisorResult | null;
   /** пересчёт фильтров под план (если план их трогает) */
   planEval: FilterEval | null;
+  /** прогноз PID под план */
+  planPid?: PlanSnapshot['pid'];
 }
 
 export function buildSnapshot(x: SnapshotInput): SessionSnapshot {
@@ -245,6 +252,7 @@ export function buildSnapshot(x: SnapshotInput): SessionSnapshot {
       from: adv.from,
       to: adv.to,
       ruleIds: adv.advice.filter((a) => a.selected && a.kind === 'tune').map((a) => `${a.id}@${a.version}`),
+      pid: x.planPid && x.planPid.length ? x.planPid.map((f) => ({ axis: f.axis, overshoot: rr(f.overshoot), delayMs: rr(f.delayMs), settle: rr(f.settle, r3) })) : undefined,
       filters: pe && fb ? {
         df: decimateDb([0], fb.df, C.spectrumDf).df,
         gyroDeltaDb: pe.gyroDb.map((d, a) => deltaDb(d, fb.current.gyroDb[a], fb.df)),

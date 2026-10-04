@@ -141,7 +141,7 @@ function compareBlock(Ar: SessionRecord, Br: SessionRecord, track: (d: () => voi
         return h('tr', null,
           h('td', null, T.ses.m[r.id] ?? r.id, r.axis !== undefined ? `, ${AXIS_NAMES[r.axis]}` : '', r.flightDependent ? ' *' : ''),
           h('td', null, `${fmt(r.a, r.digits)}${r.unit}`),
-          h('td', { style: 'font-style:italic' }, r.pred !== undefined ? `${fmt(r.pred, r.digits)}${r.unit}` : ''),
+          h('td', { style: 'font-style:italic' }, r.pred !== undefined ? `${fmt(r.pred, r.digits)}${r.unit}` : '', r.band ? h('span', { class: 'muted small' }, ` (${fmt(r.band.lo, r.digits)}–${fmt(r.band.hi, r.digits)})`) : null),
           h('td', null, h('b', null, `${fmt(r.b, r.digits)}${r.unit}`)),
           h('td', null, Number.isFinite(d) ? `${d > 0 ? '+' : ''}${fmt(d, r.digits)}` : '—'),
           h('td', { style: `color:var(${r.verdict === 'better' ? '--green' : r.verdict === 'worse' ? '--red' : '--fg2'})` }, T.ses.verdict[r.verdict]));
