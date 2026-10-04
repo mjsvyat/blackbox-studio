@@ -11,9 +11,11 @@ import { Column, col, decodeLog } from '../decoder/decoder';
 import { FileStructure, blobReader, scanFile } from '../decoder/scan';
 import { toDb } from '../dsp/spectrum';
 import { T } from '../i18n/ru';
-import type { AnalysisPayload, FiltersPayload, FromWorker, LogInfo, ToWorker } from './protocol';
+import type { AnalysisPayload, FiltersPayload, FromWorker, LogInfo, RatesPayload, ToWorker } from './protocol';
 import { FilterBaseline, buildBaseline, evaluate, quantFloorPsd } from '../filters/evaluate';
 import { FilterContext, contextFromHeader, paramsFromHeader, simplifiedConsistent } from '../filters/settings';
+import { RatesWork, buildRatesBase, evalRates, newSetpoint } from '../rates/analyze';
+import { ratesFromHeader } from '../rates/rates';
 
 const ctxW = self as unknown as DedicatedWorkerGlobalScope;
 
@@ -30,6 +32,8 @@ let lastNoiseStatus = 'grey';
 let filterBase: FilterBaseline | null = null;
 let filtersPayload: FiltersPayload | null = null;
 let filterCtx: FilterContext | null = null;
+// для рейтов: база на текущей маске (сбрасывается при смене участка)
+let ratesWork: RatesWork | null = null;
 
 const post = (m: FromWorker, transfer: Transferable[] = []): void => ctxW.postMessage(m, transfer);
 const progress = (stage: string, fraction: number): void => post({ type: 'progress', stage, fraction });
@@ -56,6 +60,17 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
       if (ctx && filterBase && filterCtx) {
         const { ev } = evaluate(ctx, m.params, filterCtx, filterBase.segments, filterBase.n, filterBase.current.op);
         post({ type: 'filtersEval', reqId: m.reqId, ev });
+      }
+    } else if (m.type === 'ratesInit') {
+      if (ctx) {
+        const r = computeRates(ctx);
+        post({ type: 'rates', payload: r.payload, why: r.why });
+      }
+    } else if (m.type === 'ratesEval') {
+      if (ctx && ratesWork) {
+        const sp = newSetpoint(ctx, ratesWork, m.profile);
+        sp.forEach((a, i) => series.set(`spN${i}`, a));
+        post({ type: 'ratesEval', reqId: m.reqId, ev: evalRates(ctx, ratesWork, sp) });
       }
     } else if (m.type === 'series') {
       const r = getSeries(m.keys, m.t0, m.t1, m.width);
@@ -127,6 +142,7 @@ function analyze(): AnalysisPayload {
   series.set('mask', maskSeries);
   lastMask = fm.mask;
   lastBursts = nz.bursts;
+  ratesWork = null;
   // модель фильтров на текущих настройках (самопроверка + задержка для карточки)
   filtersPayload = null;
   try {
@@ -192,6 +208,15 @@ function computeFilters(c: LogContext): FiltersPayload {
     base, params, fwCode: c.fw.code, simplified: simplifiedConsistent(params),
     track: { t, dyn, lpf1 }, quantFloorDb: toDb(quantFloorPsd(c.fs)), noiseStatus: lastNoiseStatus,
   };
+}
+
+function computeRates(c: LogContext): { payload: RatesPayload | null; why?: string } {
+  const profile = ratesFromHeader(c.log.header);
+  if (!profile) return { payload: null, why: 'no-header' };
+  if (!ratesWork) ratesWork = buildRatesBase(c, lastMask!, profile);
+  // «новый» setpoint до первого пересчёта песочницы = записанный
+  for (let a = 0; a < 3; a++) if (!series.has(`spN${a}`) && series.has(`sp${a}`)) series.set(`spN${a}`, series.get(`sp${a}`)!);
+  return { payload: { ...ratesWork.base, fwCode: c.fw.code } };
 }
 
 /** производные ряды в физических единицах */

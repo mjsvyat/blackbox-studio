@@ -1,5 +1,5 @@
 // Справочник параметров Betaflight: имя в CLI, диапазон, дефолт, с какой версии.
-// Пока — только параметры фильтров (этап 2). Источник: settings.c / *_config.h BF 4.3+.
+// Фильтры (этап 2) и рейты (этап 3). Источник: settings.c / *_config.h BF 4.3+.
 // Версия: code = major*1e6 + minor*1e3 + patch (см. parseFirmware).
 
 export interface ParamDef {
@@ -19,7 +19,17 @@ export interface ParamDef {
 }
 
 const LPF_TYPES = ['PT1', 'BIQUAD', 'PT2', 'PT3'];
+const V41 = 4_001_000;
 const V43 = 4_003_000;
+const RATES_TYPES = ['BETAFLIGHT', 'RACEFLIGHT', 'KISS', 'ACTUAL', 'QUICK'];
+
+/** параметры рейтов по осям: rc_rate / srate / expo / rate_limit (rates/rates.ts) */
+const rateAxis = (ax: string, axRu: string): ParamDef[] => [
+  { name: `${ax}_rc_rate`, min: 1, max: 255, def: 7, label: `${axRu}: rc_rate (смысл зависит от типа)`, help: 'rates-params' },
+  { name: `${ax}_srate`, min: 0, max: 255, def: 67, label: `${axRu}: rate / super rate`, help: 'rates-params' },
+  { name: `${ax}_expo`, min: 0, max: 100, def: 0, label: `${axRu}: expo`, help: 'rates-params' },
+  { name: `${ax}_rate_limit`, min: 200, max: 1998, def: 1998, unit: '°/с', label: `${axRu}: ограничение`, help: 'rates-params' },
+];
 
 export const PARAMS: ParamDef[] = [
   { name: 'gyro_lpf1_type', min: 0, max: 3, def: 0, options: LPF_TYPES, since: V43, label: 'Gyro LPF1: тип', help: 'filter-lpf' },
@@ -55,6 +65,11 @@ export const PARAMS: ParamDef[] = [
   { name: 'simplified_gyro_filter_multiplier', min: 10, max: 200, def: 100, since: V43, label: 'Simplified: множитель фильтров гиро', help: 'filter-simplified' },
   { name: 'simplified_dterm_filter', min: 0, max: 1, def: 1, options: ['OFF', 'ON'], since: V43, label: 'Simplified: фильтры D-term', help: 'filter-simplified' },
   { name: 'simplified_dterm_filter_multiplier', min: 10, max: 200, def: 100, since: V43, label: 'Simplified: множитель фильтров D-term', help: 'filter-simplified' },
+  { name: 'rates_type', min: 0, max: 4, def: 3, options: RATES_TYPES, since: V41, label: 'Тип рейтов', help: 'rates-type' },
+  { name: 'quickrates_rc_expo', min: 0, max: 1, def: 0, options: ['OFF', 'ON'], since: V43, label: 'Quick: expo как в RC Rate', help: 'rates-type' },
+  ...rateAxis('roll', 'Ролл'),
+  ...rateAxis('pitch', 'Питч'),
+  ...rateAxis('yaw', 'Яв'),
 ];
 
 export const paramByName = new Map(PARAMS.map((p) => [p.name, p]));
@@ -72,4 +87,34 @@ export function clampParam(name: string, v: number): number {
   const p = paramByName.get(name);
   if (!p) return v;
   return Math.min(p.max, Math.max(p.min, Math.round(v)));
+}
+
+/** значение для CLI: перечисления — словом (BF CLI не принимает число для lookup-параметров) */
+export function cliValue(name: string, v: number): string {
+  const p = paramByName.get(name);
+  return p?.options && p.options[v] !== undefined ? p.options[v] : String(v);
+}
+
+export interface CliResult {
+  lines: string[];
+  changed: { name: string; from: number | undefined; to: number }[];
+  skipped: { name: string; why: string }[];
+}
+
+/** блок CLI: только изменённые параметры, в пределах диапазона своей версии */
+export function cliDiff(from: Record<string, number>, to: Record<string, number>, fwCode: number): CliResult {
+  const changed: CliResult['changed'] = [];
+  const skipped: CliResult['skipped'] = [];
+  for (const [k, v] of Object.entries(to)) {
+    if (from[k] === v) continue;
+    if (!paramAvailable(k, fwCode)) {
+      skipped.push({ name: k, why: 'нет в этой версии прошивки' });
+      continue;
+    }
+    const c = clampParam(k, v);
+    changed.push({ name: k, from: from[k], to: c });
+  }
+  const lines = changed.map((c) => `set ${c.name} = ${cliValue(c.name, c.to)}`);
+  if (lines.length) lines.push('save');
+  return { lines, changed, skipped };
 }

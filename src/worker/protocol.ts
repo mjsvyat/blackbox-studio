@@ -8,6 +8,8 @@ import type { FileStructure } from '../decoder/scan';
 import type { LogEvent } from '../decoder/decoder';
 import type { FilterBaseline, FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
+import type { RatesBase, RatesEval } from '../rates/analyze';
+import type { RateProfile } from '../rates/rates';
 
 export type ToWorker =
   | { type: 'scan'; file: Blob; name: string }
@@ -15,7 +17,9 @@ export type ToWorker =
   | { type: 'setRange'; range: { t0: number; t1: number } | null }
   | { type: 'series'; reqId: number; keys: string[]; t0: number; t1: number; width: number }
   | { type: 'filtersInit' }
-  | { type: 'filtersEval'; reqId: number; params: FilterParams };
+  | { type: 'filtersEval'; reqId: number; params: FilterParams }
+  | { type: 'ratesInit' }
+  | { type: 'ratesEval'; reqId: number; profile: RateProfile };
 
 export interface FiltersPayload {
   base: FilterBaseline;
@@ -26,6 +30,11 @@ export interface FiltersPayload {
   track: { t: Float32Array; dyn: Float32Array[][]; lpf1: Float32Array };
   quantFloorDb: number;
   noiseStatus: string;
+}
+
+/** рейты: база на текущих настройках (см. rates/analyze.ts) */
+export interface RatesPayload extends RatesBase {
+  fwCode: number;
 }
 
 export interface AxisSpectra {
@@ -93,6 +102,8 @@ export type FromWorker =
   | { type: 'series'; reqId: number; x: Float64Array; ys: Float32Array[]; raw: boolean }
   | { type: 'filters'; payload: FiltersPayload }
   | { type: 'filtersEval'; reqId: number; ev: FilterEval }
+  | { type: 'rates'; payload: RatesPayload | null; why?: string }
+  | { type: 'ratesEval'; reqId: number; ev: RatesEval }
   | { type: 'error'; message: string };
 
 export type { LogEvent };

@@ -1,9 +1,11 @@
 // Состояние приложения и связь с воркером.
 
 import type { FileStructure } from '../decoder/scan';
-import type { AnalysisPayload, FiltersPayload, FromWorker, LogInfo, ToWorker } from '../worker/protocol';
+import type { AnalysisPayload, FiltersPayload, FromWorker, LogInfo, RatesPayload, ToWorker } from '../worker/protocol';
 import type { FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
+import type { RatesEval } from '../rates/analyze';
+import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
 
 export interface AppState {
@@ -24,6 +26,14 @@ export interface AppState {
   sandboxEval: FilterEval | null;
   sandboxBusy: boolean;
   filterAxis: number;
+  /** рейты: база из воркера; null + ratesWhy — посчитать нельзя */
+  rates: RatesPayload | null;
+  ratesWhy: string | null;
+  ratesSandbox: RateProfile | null;
+  ratesEval: RatesEval | null;
+  ratesBusy: boolean;
+  /** выбранный манёвр (индекс в rates.maneuvers) */
+  ratesManeuver: number;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -44,6 +54,12 @@ export const state: AppState = {
   sandboxEval: null,
   sandboxBusy: false,
   filterAxis: 0,
+  rates: null,
+  ratesWhy: null,
+  ratesSandbox: null,
+  ratesEval: null,
+  ratesBusy: false,
+  ratesManeuver: 0,
 };
 
 const listeners = new Set<Listener>();
@@ -82,10 +98,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     }
     case 'opened':
-      set({ filters: null, sandbox: null, sandboxEval: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
+      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
       break;
     case 'analysis':
-      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null });
+      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0 });
       break;
     case 'filters':
       if (state.sandbox) {
@@ -96,6 +112,14 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     case 'filtersEval':
       if (m.reqId === sandboxReq) set({ sandboxEval: m.ev, sandboxBusy: false });
+      break;
+    case 'rates':
+      set({ rates: m.payload, ratesWhy: m.payload ? null : m.why ?? 'unknown', progress: null });
+      // участок анализа поменялся, а в песочнице уже что-то есть — пересчитать
+      if (m.payload) requestRatesEval(state.ratesSandbox ?? m.payload.profile, 0);
+      break;
+    case 'ratesEval':
+      if (m.reqId === ratesReq) set({ ratesEval: m.ev, ratesBusy: false });
       break;
     case 'series': {
       const cb = pending.get(m.reqId);
@@ -160,4 +184,27 @@ export function requestSandbox(params: FilterParams): void {
     sandboxReq++;
     send({ type: 'filtersEval', reqId: sandboxReq, params });
   }, 250);
+}
+
+let ratesRequested = false;
+subscribe((s, ch) => {
+  if (ch.has('rates') && !s.rates) ratesRequested = false;
+});
+/** база рейтов — лениво, при первом показе вкладки */
+export function ensureRates(): void {
+  if (state.rates || state.ratesWhy || ratesRequested || !state.info) return;
+  ratesRequested = true;
+  send({ type: 'ratesInit' });
+}
+
+let ratesReq = 0;
+let ratesTimer: ReturnType<typeof setTimeout> | null = null;
+/** пересчёт setpoint под рейты песочницы (кривые считаются в UI мгновенно, это — манёвры) */
+export function requestRatesEval(profile: RateProfile, delayMs = 150): void {
+  set({ ratesSandbox: profile, ratesBusy: true });
+  if (ratesTimer) clearTimeout(ratesTimer);
+  ratesTimer = setTimeout(() => {
+    ratesReq++;
+    send({ type: 'ratesEval', reqId: ratesReq, profile });
+  }, delayMs);
 }

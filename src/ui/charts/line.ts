@@ -23,6 +23,8 @@ export interface LineSpec {
   marks?: { x: number; label: string; color: string }[];
   /** горизонтальная линия (например, шум округления) */
   hline?: { y: number; label: string; color: string };
+  /** столбики снизу графика (гистограмма): центры по X, высоты 0…1 от нижних 35 % поля */
+  bars?: { x: number[]; h: number[]; width: number; color: string };
   extraTitle?: HTMLElement | string | null;
   note?: string;
 }
@@ -60,6 +62,18 @@ export function lineChart(spec: LineSpec): { el: HTMLElement; destroy: () => voi
           const dpr = devicePixelRatio || 1;
           ctx.save();
           ctx.font = `${11 * dpr}px system-ui`;
+          if (spec.bars) {
+            const b = spec.bars;
+            ctx.fillStyle = color(b.color);
+            ctx.globalAlpha = 0.35;
+            const base = pl.bbox.top + pl.bbox.height;
+            for (let i = 0; i < b.x.length; i++) {
+              const xa = pl.valToPos(b.x[i] - b.width / 2, 'x', true), xb = pl.valToPos(b.x[i] + b.width / 2, 'x', true);
+              const hh = Math.max(0, Math.min(1, b.h[i])) * pl.bbox.height * 0.35;
+              ctx.fillRect(xa + dpr, base - hh, Math.max(1, xb - xa - 2 * dpr), hh);
+            }
+            ctx.globalAlpha = 1;
+          }
           for (const m of spec.marks ?? []) {
             const px = pl.valToPos(m.x, 'x', true);
             if (px < pl.bbox.left || px > pl.bbox.left + pl.bbox.width) continue;
