@@ -2,7 +2,7 @@ import './ui/styles.css';
 import { T } from './i18n/ru';
 import { clear, fmtTime, h } from './ui/dom';
 import { helpBtn, openGlossary } from './ui/help';
-import { AppState, openFile, openLog, set, state, subscribe } from './ui/store';
+import { AppState, exportReport, openFile, openLog, set, state, subscribe } from './ui/store';
 import { fileView } from './ui/views/file';
 import { flightView, motorsView } from './ui/views/flight';
 import { noiseView } from './ui/views/noise';
@@ -67,6 +67,7 @@ function renderTopbar(): void {
     h('span', { class: 'file-name' }, state.fileName ?? T.noFile),
     sel ?? "",
     h('span', { class: 'spacer' }),
+    state.info ? h('button', { class: 'btn small', onclick: () => exportReport() }, T.rep.button) : '',
     h('button', { class: 'btn small', onclick: openGlossary }, T.help.glossary),
     h('button', { class: 'btn small', onclick: toggleTheme }, document.documentElement.dataset.theme === 'dark' ? T.themeLight : T.themeDark),
   );

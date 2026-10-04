@@ -12,7 +12,7 @@ import { fmt, fmtTime, h } from '../dom';
 import { helpBtn } from '../help';
 import { incidentForm, journal, profilePanel, rollbackPanel } from './incidents';
 import {
-  deleteProject, deleteSession, exportProject, importProject, loadSessions, renameProject, saveCurrentSession, set, state,
+  deleteProject, deleteSession, exportProject, exportReport, importProject, loadSessions, renameProject, saveCurrentSession, set, state,
   updateSessionNotes,
 } from '../store';
 
@@ -89,13 +89,14 @@ function row(r: SessionRecord): HTMLElement {
     h('td', null, radio('cmpB')),
     h('td', { style: 'white-space:nowrap' },
       h('button', { class: 'btn small', title: T.inc.report, onclick: () => set({ incidentForm: r.id }) }, '⚠'),
+      h('button', { class: 'btn small', title: T.rep.button, onclick: () => exportReport(r.snap) }, '📄'),
       h('button', { class: 'btn small', title: T.inc.rollbackTitle, onclick: () => set({ rollbackFor: state.rollbackFor === r.id ? null : r.id }) }, '↩'),
       h('button', { class: 'btn small', onclick: () => { if (confirm(T.ses.delSessionQ)) deleteSession(r.id); } }, '×')));
 }
 
 function compareBlock(Ar: SessionRecord, Br: SessionRecord, track: (d: () => void) => void): HTMLElement {
   const a = Ar.snap, b = Br.snap;
-  const box = h('div', null, h('h2', null, T.ses.cmpTitle, helpBtn('compare')),
+  const box = h('div', null, h('h2', null, T.ses.cmpTitle, helpBtn('compare'), h('button', { class: 'btn small', style: 'margin-left:8px', onclick: () => exportReport(b, a) }, T.rep.button)),
     h('div', { class: 'muted' }, `${T.ses.was}: ${when(a)} · ${a.source.fileName} №${a.source.logIndex}${Ar.notes ? ` — ${Ar.notes}` : ''}`),
     h('div', { class: 'muted', style: 'margin-bottom:8px' }, `${T.ses.now}: ${when(b)} · ${b.source.fileName} №${b.source.logIndex}${Br.notes ? ` — ${Br.notes}` : ''}`));
 

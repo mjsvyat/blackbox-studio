@@ -184,6 +184,28 @@ export const T = {
     motorHz: (hz: number) => `Моторы на крейсере ≈ ${f0(hz)} Гц (${f0(hz * 60)} об/мин)`,
   },
 
+  mp: {
+    motorsByThr: 'Моторы по газу: средняя команда, %',
+    motorsHzByThr: 'Моторы по газу: обороты, Гц',
+    motorsNote: 'Линии должны идти рядом. Один мотор стабильно выше — он работает больше других: кривой проп, уставший мотор, смещённый центр тяжести или перекос рамы.',
+    powerByThr: 'Питание по газу',
+    cellV: 'В на банку',
+    amp: 'ток, А',
+    powerNote: 'Чем круче падает напряжение с газом, тем больше сопротивление пакета и проводки. Ток у «полки» датчика — оценка снизу.',
+    eventsTitle: 'События моторов и питания',
+    noEvents: 'Десинков, упоров и просадок не найдено.',
+    thrAxis: 'газ, %',
+  },
+
+  link: {
+    title: 'Связь',
+    rssi: 'RSSI, %',
+    stats: (avg: string, min: string, low: string, loss: number, fsCount: number) => `RSSI средний ${avg} %, минимум ${min} %, ниже порога ${low} % времени · потерь сигнала ${loss}, failsafe ${fsCount}`,
+    noRssi: 'RSSI в лог не пишется (или всегда 0) — оценить связь нельзя. Для CRSF включи «RSSI из LQ» или канал RSSI.',
+    modes: 'Режимы полёта по времени',
+    modesNote: 'Клик — приблизить графики к этому моменту.',
+  },
+
   flight: {
     title: 'Полёт и события',
     overview: 'Обзор (газ и маска чистого полёта)',
@@ -679,6 +701,29 @@ export const T = {
     logsTitle: '# Логи случая\n\nБайты логов не приложены (файл не был открыт при экспорте). Где их взять:',
     logRef: (name: string, file: string, idx: number, a?: number, b?: number) => `- ${name}: файл \`${file}\`, лог №${idx}${a !== undefined ? `, байты ${a}…${b}` : ''}`,
     resolutionTemplate: (id: string) => `# ${id}: разбор\n\n## Причина\n\n(ошибка утилиты / механика / внешние условия — с цифрами)\n\n## Что поменяли\n\n- правило / порог / модель, версия было → стало\n- запись в _history конфига (by: ${id})\n\n## Регрессионная проверка\n\n(какие checks добавлены в case.json → regression)\n\n## Коммит\n\n`,
+  },
+
+  rep: {
+    button: 'Отчёт HTML',
+    title: (craft: string) => `Blackbox Studio — отчёт${craft ? `: ${craft}` : ''}`,
+    compareTitle: 'Сравнение: было → стало',
+    source: 'Лог',
+    flight: 'Чистый полёт',
+    cards: 'Светофор',
+    noise: 'Шумы (СКЗ выше 80 Гц)',
+    colAxis: 'Ось', colUnfilt: 'до фильтров, °/с', colFilt: 'после фильтров, °/с', colD: 'D-term',
+    filters: 'Фильтры',
+    filtersLine: (d: number, dd: number, m: string) => `Задержка на 100 Гц: гиро ${d.toFixed(2)} мс, гиро+D-term ${dd.toFixed(2)} мс. Модель фильтров совпадает с бортом: ${m}.`,
+    pid: 'Отработка PID (step response)',
+    colOs: 'перерегулирование, %', colDelay: 'задержка 50 %, мс', colSettle: 'уровень', colTrust: 'доверие',
+    trustOk: 'надёжно', trustLow: 'мало данных',
+    advice: 'Советы',
+    noAdvice: 'Советов нет.',
+    selected: 'в этой итерации',
+    plan: 'План (CLI)',
+    settings: 'Ключевые настройки (из заголовка)',
+    plots: 'Графики',
+    footer: (v: string) => `Сделано Blackbox Studio · пороги analysis.json v${v} · отчёт открывается без интернета`,
   },
 
   inc: {

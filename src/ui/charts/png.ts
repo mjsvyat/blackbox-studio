@@ -7,7 +7,7 @@ import type { SessionSnapshot } from '../../sessions/snapshot';
 
 interface Series { label: string; color: string; y: number[]; dash?: number[] }
 
-async function draw(title: string, x: number[], series: Series[], yRange?: [number, number]): Promise<Uint8Array> {
+export async function draw(title: string, x: number[], series: Series[], yRange?: [number, number]): Promise<Uint8Array> {
   const W = 900, H = 360, L = 56, R = 16, Tp = 36, B = 36;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -82,4 +82,11 @@ export async function casePlots(a: SessionSnapshot | null, b: SessionSnapshot): 
     }
   }
   return out;
+}
+
+/** PNG → data URI (для самодостаточного HTML-отчёта) */
+export function dataUri(png: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < png.length; i += 0x8000) bin += String.fromCharCode(...png.subarray(i, i + 0x8000));
+  return `data:image/png;base64,${btoa(bin)}`;
 }

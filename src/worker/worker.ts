@@ -4,6 +4,7 @@
 
 import { LogContext, buildContext } from '../analysis/context';
 import { idxAt } from '../analysis/flightMask';
+import { byThrottle } from '../analysis/health';
 import { Analysis, adviseLog, analyzeLog, pidForecastCurves, snapshotLog } from '../analysis/pipeline';
 import { SAME } from '../sysid/axisModel';
 import { forecastAxis } from '../sysid/predict';
@@ -202,6 +203,7 @@ function analyze(): AnalysisPayload {
       degraded: nz.degraded,
     },
     anomalies: h.anomalies,
+    health: { motors: h.motors, power: h.power, link: h.link, thr: byThrottle(c, fm) },
   };
 }
 

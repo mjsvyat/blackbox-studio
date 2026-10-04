@@ -1,7 +1,7 @@
 // Сообщения между UI и воркером.
 
 import type { Card } from '../analysis/summary';
-import type { Anomaly, ModeSpan } from '../analysis/health';
+import type { Anomaly, LinkStats, ModeSpan, MotorStats, PowerStats, ThrottleDetail } from '../analysis/health';
 import type { Burst, ClassifiedPeak } from '../analysis/noise';
 import type { Spectrogram } from '../dsp/spectrum';
 import type { FileStructure } from '../decoder/scan';
@@ -91,6 +91,8 @@ export interface AnalysisPayload {
     degraded: string | null;
   };
   anomalies: Anomaly[];
+  /** этап 8: подробности для «Моторы и питание» и «Связь» */
+  health: { motors: MotorStats; power: PowerStats; link: LinkStats; thr: ThrottleDetail };
 }
 
 export interface LogInfo {

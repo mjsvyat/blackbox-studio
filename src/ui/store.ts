@@ -11,7 +11,8 @@ import type { BoardKnowledge } from '../advisor/advisor';
 import { Incident, autoAnalyze, boardKnowledge, lastGood, ruleStats } from '../incidents/incidents';
 import { buildCaseFiles, caseFolderName } from '../incidents/caseExport';
 import { zip } from '../incidents/zip';
-import { casePlots } from './charts/png';
+import { casePlots, dataUri } from './charts/png';
+import { reportHtml } from '../report/report';
 import type { AxisForecast } from '../sysid/predict';
 import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
@@ -467,4 +468,27 @@ export function requestPidForecast(changes: Record<string, number>, delayMs = 15
     pidReq++;
     send({ type: 'pidPredict', reqId: pidReq, changes, bandScale: board?.pidBandScale ?? 1 });
   }, delayMs);
+}
+
+// --- отчёт HTML (этап 8) ---
+function download(name: string, text: string, type: string): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/** отчёт по снимку; before — «было» для блока сравнения; без снимка — по открытому логу */
+export async function exportReport(snap?: SessionSnapshot, before?: SessionSnapshot): Promise<void> {
+  set({ progress: { stage: 'Отчёт', fraction: 0.5 } });
+  try {
+    const s = snap ?? (await requestSnapshot());
+    const png = await casePlots(before ?? null, s);
+    const images = Object.fromEntries(Object.entries(png).map(([k, v]) => [k, dataUri(v)]));
+    const name = `blackbox-report-${(s.source.craft || 'board').replace(/[^\wа-яА-Я-]+/g, '_')}-${s.source.datetime.slice(0, 10)}-${s.source.logIndex}${before ? '-compare' : ''}.html`;
+    download(name, reportHtml(s, images, before), 'text/html');
+  } finally {
+    set({ progress: null });
+  }
 }
