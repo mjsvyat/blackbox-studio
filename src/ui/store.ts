@@ -5,6 +5,8 @@ import type { AdvicePayload, AnalysisPayload, FiltersPayload, FromWorker, LogInf
 import type { FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
 import type { RatesEval } from '../rates/analyze';
+import type { SessionSnapshot } from '../sessions/snapshot';
+import { Project, SessionRecord, SessionStore, idbBackend, memoryBackend } from '../sessions/db';
 import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
 
@@ -36,6 +38,15 @@ export interface AppState {
   ratesManeuver: number;
   pid: PidPayload | null;
   advice: AdvicePayload | null;
+  /** сессии: все проекты и сессии из базы; выбранные для сравнения A (было) и B (стало) */
+  projects: Project[];
+  sessions: SessionRecord[];
+  dbPersistent: boolean | null;
+  cmpA: string | null;
+  cmpB: string | null;
+  cmpAxis: number;
+  sessionsBusy: boolean;
+  sessionsMsg: string | null;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -64,6 +75,14 @@ export const state: AppState = {
   ratesManeuver: 0,
   pid: null,
   advice: null,
+  projects: [],
+  sessions: [],
+  dbPersistent: null,
+  cmpA: null,
+  cmpB: null,
+  cmpAxis: 0,
+  sessionsBusy: false,
+  sessionsMsg: null,
 };
 
 const listeners = new Set<Listener>();
@@ -131,6 +150,12 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     case 'advice':
       set({ advice: m.payload, progress: null });
       break;
+    case 'snapshot': {
+      const cb = snapPending.get(m.reqId);
+      snapPending.delete(m.reqId);
+      cb?.(m.snap);
+      break;
+    }
     case 'series': {
       const cb = pending.get(m.reqId);
       pending.delete(m.reqId);
@@ -234,4 +259,104 @@ export function ensureAdvice(): void {
   adviceRequested = true;
   set({ progress: { stage: 'Советчик', fraction: 0.5 } });
   send({ type: 'adviceInit' });
+}
+
+// --- сессии (этап 5) ---
+let storeP: Promise<SessionStore> | null = null;
+function db(): Promise<SessionStore> {
+  if (!storeP) {
+    storeP = (async () => {
+      try {
+        if (typeof indexedDB === 'undefined') throw new Error('нет IndexedDB');
+        const b = await idbBackend();
+        set({ dbPersistent: true });
+        return new SessionStore(b);
+      } catch {
+        set({ dbPersistent: false });
+        return new SessionStore(memoryBackend());
+      }
+    })();
+  }
+  return storeP;
+}
+
+export async function loadSessions(): Promise<void> {
+  const st = await db();
+  set({ projects: await st.projects(), sessions: await st.sessions() });
+}
+
+const snapPending = new Map<number, (s: SessionSnapshot) => void>();
+function requestSnapshot(): Promise<SessionSnapshot> {
+  const reqId = ++reqSeq;
+  return new Promise((res) => {
+    snapPending.set(reqId, res);
+    send({ type: 'snapshot', reqId });
+  });
+}
+
+/** сохранить открытый лог как сессию (проект — по борту из заголовка) */
+export async function saveCurrentSession(notes: string): Promise<void> {
+  if (!state.info) return;
+  set({ sessionsBusy: true, sessionsMsg: null });
+  try {
+    const snap = await requestSnapshot();
+    const st = await db();
+    const same = await st.findSame(snap);
+    if (same) {
+      set({ sessionsMsg: 'Этот лог уже сохранён.' });
+      return;
+    }
+    const key = snap.source.craft || snap.source.board || 'Борт';
+    const p = await st.projectFor(key);
+    const r = await st.saveSession(p.id, snap, notes);
+    await loadSessions();
+    // удобно: последняя сохранённая — «стало», предыдущая этого борта — «было»
+    const list = state.sessions.filter((x) => x.projectId === p.id);
+    const prev = list.filter((x) => x.id !== r.id).pop();
+    set({ cmpB: r.id, cmpA: prev?.id ?? state.cmpA, sessionsMsg: 'Сессия сохранена.' });
+  } catch (e) {
+    set({ sessionsMsg: `Не удалось сохранить: ${e instanceof Error ? e.message : String(e)}` });
+  } finally {
+    set({ sessionsBusy: false });
+  }
+}
+
+export async function updateSessionNotes(r: SessionRecord, notes: string): Promise<void> {
+  await (await db()).updateSession({ ...r, notes });
+  await loadSessions();
+}
+
+export async function renameProject(p: Project, name: string): Promise<void> {
+  await (await db()).saveProject({ ...p, name });
+  await loadSessions();
+}
+
+export async function deleteSession(id: string): Promise<void> {
+  await (await db()).deleteSession(id);
+  set({ cmpA: state.cmpA === id ? null : state.cmpA, cmpB: state.cmpB === id ? null : state.cmpB });
+  await loadSessions();
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await (await db()).deleteProject(id);
+  await loadSessions();
+}
+
+export async function exportProject(p: Project): Promise<void> {
+  const json = await (await db()).exportProject(p.id);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  a.download = `blackbox-studio-${p.name.replace(/[^\wа-яА-Я-]+/g, '_')}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+export async function importProject(f: File): Promise<void> {
+  try {
+    const r = await (await db()).importProject(await f.text());
+    await loadSessions();
+    set({ sessionsMsg: `Импортировано сессий: ${r.added}${r.skipped ? `, уже были: ${r.skipped}` : ''}.` });
+  } catch (e) {
+    set({ sessionsMsg: `Импорт не удался: ${e instanceof Error ? e.message : String(e)}` });
+  }
 }

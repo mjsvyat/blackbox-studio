@@ -13,6 +13,7 @@ import type { RateProfile } from '../rates/rates';
 import type { PidResult } from '../pid/analyze';
 import type { SimplifiedPids } from '../pid/gains';
 import type { AdvisorResult } from '../advisor/advisor';
+import type { SessionSnapshot } from '../sessions/snapshot';
 
 export type ToWorker =
   | { type: 'scan'; file: Blob; name: string }
@@ -24,6 +25,7 @@ export type ToWorker =
   | { type: 'ratesInit' }
   | { type: 'pidInit' }
   | { type: 'adviceInit' }
+  | { type: 'snapshot'; reqId: number }
   | { type: 'ratesEval'; reqId: number; profile: RateProfile };
 
 export interface FiltersPayload {
@@ -121,6 +123,7 @@ export type FromWorker =
   | { type: 'ratesEval'; reqId: number; ev: RatesEval }
   | { type: 'pid'; payload: PidPayload }
   | { type: 'advice'; payload: AdvicePayload }
+  | { type: 'snapshot'; reqId: number; snap: SessionSnapshot }
   | { type: 'error'; message: string };
 
 export type { LogEvent };

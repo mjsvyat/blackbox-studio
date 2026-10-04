@@ -2,18 +2,14 @@
 // итерации) и на настоящих логах (тот же путь, что в воркере).
 import { describe, expect, it } from 'vitest';
 import cfg from '../src/config/analysis.json';
-import { AdvisorInput, advisorInputFrom, runAdvisor } from '../src/advisor/advisor';
+import { AdvisorInput, runAdvisor } from '../src/advisor/advisor';
 import { buildContext } from '../src/analysis/context';
-import { buildFlightMask } from '../src/analysis/flightMask';
-import { analyzeHealth } from '../src/analysis/health';
-import { analyzeNoise } from '../src/analysis/noise';
 import { decodeLog } from '../src/decoder/decoder';
 import { scanFile } from '../src/decoder/scan';
-import { buildBaseline } from '../src/filters/evaluate';
-import { applySimplified, contextFromHeader, paramsFromHeader } from '../src/filters/settings';
+import { applySimplified } from '../src/filters/settings';
 import { T } from '../src/i18n/ru';
-import { analyzePid, PidResult } from '../src/pid/analyze';
-import { simplifiedFromHeader } from '../src/pid/gains';
+import type { PidResult } from '../src/pid/analyze';
+import { adviseLog, analyzeLog } from '../src/analysis/pipeline';
 import { BIG_DUMP, SMALL_DUMP, fileReader, hasFixture, readRange } from './helpers';
 
 const FW = 2_026_006_001;
@@ -153,6 +149,7 @@ describe('правила советчика', () => {
   });
 });
 
+/** тот же путь, что в воркере (analysis/pipeline.ts) */
 async function run(file: string, index: number) {
   const r = fileReader(file);
   const st = await scanFile(r);
@@ -160,13 +157,7 @@ async function run(file: string, index: number) {
   const L = st.logs.find((l) => l.index === index)!;
   const end = L.crossesWrap && L.wrapBoundary ? L.wrapBoundary : L.end;
   const c = buildContext(decodeLog(readRange(file, L.start, end - L.start)));
-  const fm = buildFlightMask(c);
-  const nz = analyzeNoise(c, fm);
-  const hh = analyzeHealth(c, fm);
-  const params = paramsFromHeader(c.log.header);
-  const { base } = buildBaseline(c, fm.mask, nz.bursts, params, contextFromHeader(c.log.header, c.fw.code));
-  const pid = analyzePid(c, fm.mask);
-  return runAdvisor(advisorInputFrom(c, nz, hh, { params, status: base.validation.status, reason: base.validation.reason }, pid, simplifiedFromHeader(c.log.header)));
+  return adviseLog(analyzeLog(c));
 }
 
 describe.skipIf(!hasFixture(SMALL_DUMP))('советчик на логе 2026.6.1 №4', () => {
