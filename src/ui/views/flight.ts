@@ -3,6 +3,7 @@
 
 import { AXIS_NAMES, T } from '../../i18n/ru';
 import { TimeChart, zoomTo } from '../charts/timechart';
+import { lineChart } from '../charts/line';
 import { fmt, fmtTime, h } from '../dom';
 import { helpBtn } from '../help';
 import { set, setAnalysisRange, state } from '../store';
@@ -52,7 +53,23 @@ export function flightView(track: (d: () => void) => void): HTMLElement {
     series: [{ key: 'vbat', label: T.flight.sVbat, color: '--s3' }, { key: 'amp', label: T.flight.sAmp, color: '--s5', scale: 'amp' }],
     scales: { amp: {} },
   }));
+  const hasRssi = an.health.link.hasRssi;
+  if (hasRssi) charts.push(new TimeChart({ title: T.link.rssi, help: 'metric-rssi', height: 120, yRange: [0, 100], series: [{ key: 'rssi', label: 'RSSI', color: '--s4' }] }));
   charts.forEach((c) => track(() => c.destroy()));
+
+  // полоса режимов: цвет по набору режимов, клик — зум
+  const dur = info.durationS || 1;
+  const modeColor = (m: string[], fsPh: string, rx: boolean): string => (!rx || fsPh !== 'IDLE' ? 'var(--red)' : m.some((x) => ['ANGLE', 'HORIZON', 'HEADFREE', 'GPSRESCUE'].includes(x)) ? 'var(--yellow)' : m.includes('ARM') ? 'var(--green)' : 'var(--grey)');
+  const strip = h('div', { style: 'display:flex;height:22px;border-radius:4px;overflow:hidden;border:1px solid var(--line)' },
+    info.modes.map((md) => h('div', {
+      title: `${fmtTime(md.t0)}–${fmtTime(md.t1)}: ${md.modes.join(' + ') || '—'}${md.failsafe !== 'IDLE' ? ` · failsafe ${md.failsafe}` : ''}${md.rxOk ? '' : ' · нет сигнала'}`,
+      style: `width:${Math.max(0.15, ((md.t1 - md.t0) / dur) * 100)}%;background:${modeColor(md.modes, md.failsafe, md.rxOk)};opacity:.75;cursor:pointer`,
+      onclick: () => zoomTo((md.t0 + md.t1) / 2, Math.max(1.5, (md.t1 - md.t0) / 2)),
+    })));
+  const L = an.health.link;
+  const linkBox = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.link.title, helpBtn('card-link')),
+    hasRssi ? h('div', null, T.link.stats(fmt(L.rssiAvgPct, 0), fmt(L.rssiMinPct, 0), fmt(L.lowSharePct, 1), L.rxLossCount, L.failsafeCount)) : h('div', { class: 'muted' }, T.link.noRssi),
+    hasRssi ? charts[charts.length - 1].el : null);
 
   // события: записанные в лог + найденные аномалии
   const rows: { t: number; what: string; kind: string }[] = [
@@ -75,8 +92,10 @@ export function flightView(track: (d: () => void) => void): HTMLElement {
     h('h2', null, T.flight.title),
     charts[0].el,
     rangeControls(),
+    h('div', { class: 'panel' }, h('b', { class: 'small' }, T.link.modes, ' '), h('span', { class: 'muted small' }, T.link.modesNote), strip),
     charts.slice(1, 4).map((c) => c.el),
     h('div', { class: 'two' }, charts[4].el, charts[5].el),
+    linkBox,
     events,
     h('div', { class: 'muted small' }, helpBtn('flight-mask'), ' ', T.summary.flightTime, ': ', fmtTime(an.maskSeconds)),
   );
@@ -107,6 +126,33 @@ export function motorsView(track: (d: () => void) => void): HTMLElement {
       h('div', { class: 'head' }, h('span', { class: `dot ${c.status}` }), h('span', { class: 'title' }, c.title), helpBtn(c.help)),
       h('div', { class: 'phrase' }, c.phrase), c.extra.map((e) => h('div', { class: 'extra' }, e)),
       h('div', { class: 'metrics' }, c.metrics.map((m) => h('div', { class: 'm' }, m.status ? h('span', { class: `dot ${m.status}` }) : h('span', { class: 'dot', style: 'visibility:hidden' }), h('span', { class: 'l' }, m.label), h('b', null, m.value), helpBtn(m.help)))))));
+  const th = an.health.thr;
+  const colors = ['--s1', '--s2', '--s3', '--s4', '--s5', '--fg2', '--fg3', '--red'];
+  const extra: HTMLElement[] = [];
+  const thrLines = (title: string, help: string, data: number[][], note?: string): void => {
+    const ch = lineChart({ title, help, x: th.pct, height: 220, lines: data.map((d, i) => ({ label: `М${i + 1}`, color: colors[i % colors.length], data: d, width: 1.6 })), note });
+    track(ch.destroy);
+    extra.push(ch.el);
+  };
+  thrLines(T.mp.motorsByThr, 'metric-motor-spread', th.motorCmd, T.mp.motorsNote);
+  if (th.motorHz) thrLines(T.mp.motorsHzByThr, 'card-motors', th.motorHz);
+  if (th.cellV || th.amp) {
+    const ch = lineChart({ title: T.mp.powerByThr, help: 'metric-resistance', x: th.pct, height: 200, lines: [
+      { label: T.mp.cellV, color: '--s3', data: th.cellV, width: 1.8 },
+    ], note: T.mp.powerNote });
+    track(ch.destroy);
+    extra.push(ch.el);
+    if (th.amp) {
+      const ca = lineChart({ title: `${T.mp.powerByThr}: ${T.mp.amp}`, help: 'metric-current-clip', x: th.pct, height: 160, lines: [{ label: T.mp.amp, color: '--s5', data: th.amp, width: 1.8 }] });
+      track(ca.destroy);
+      extra.push(ca.el);
+    }
+  }
+  const evs = an.anomalies.filter((x) => ['MOTOR_DESYNC', 'ALL_MOTORS_SAT', 'MOTOR_SAT', 'VBAT_DIP', 'GYRO_CLIP'].includes(x.kind));
+  const evBox = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.mp.eventsTitle),
+    evs.length ? h('table', { class: 'grid small' }, h('tbody', null, evs.map((x) => h('tr', { class: 'click', onclick: () => { zoomTo(x.t0); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
+      h('td', null, fmtTime(x.t0)), h('td', null, h('span', { class: `badge ${x.kind === 'VBAT_DIP' ? 'yellow' : 'red'}` }, x.kind), ' ', x.text)))))
+      : h('div', { class: 'muted' }, T.mp.noEvents));
   return h('div', null, h('h2', null, T.tabs.motors), cardsBox, h('div', { style: 'height:12px' }), charts[0].el, rangeControls(), charts.slice(1).map((c) => c.el),
-    h('div', { class: 'panel muted' }, T.stageLater(8), ': разброс моторов по газу, десинки на шкале, внутреннее сопротивление по пакетам.'));
+    h('div', { class: 'two' }, ...extra.slice(0, 2)), h('div', { class: 'two' }, ...extra.slice(2)), evBox);
 }

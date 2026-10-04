@@ -90,7 +90,7 @@ export interface RatesEval {
 }
 
 /** кадры, где setpoint задают не рейты (ANGLE, HEADFREE, GPS Rescue…) */
-function nonRateMask(c: LogContext): { mask: Uint8Array; seconds: number; modes: string[] } {
+export function nonRateMask(c: LogContext): { mask: Uint8Array; seconds: number; modes: string[] } {
   const { log, n, tSec } = c;
   const mask = new Uint8Array(n);
   const S = log.slowFieldNames;

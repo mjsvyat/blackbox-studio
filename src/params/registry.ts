@@ -21,7 +21,20 @@ export interface ParamDef {
 const LPF_TYPES = ['PT1', 'BIQUAD', 'PT2', 'PT3'];
 const V41 = 4_001_000;
 const V43 = 4_003_000;
+const V2025_12 = 2_025_012_000;
 const RATES_TYPES = ['BETAFLIGHT', 'RACEFLIGHT', 'KISS', 'ACTUAL', 'QUICK'];
+
+/** PID по осям (settings.c: PID_GAIN_MAX 250, F_GAIN_MAX 1000); d_min ≤ 4.5, d_max ≥ 2025.12 */
+const pidAxis = (ax: string, axRu: string): ParamDef[] => [
+  { name: `p_${ax}`, min: 0, max: 250, def: 45, label: `${axRu}: P`, help: 'pid-gains' },
+  { name: `i_${ax}`, min: 0, max: 250, def: 80, label: `${axRu}: I`, help: 'pid-gains' },
+  { name: `d_${ax}`, min: 0, max: 250, def: 30, label: `${axRu}: D`, help: 'pid-gains' },
+  { name: `f_${ax}`, min: 0, max: 1000, def: 120, label: `${axRu}: F (feedforward)`, help: 'pid-gains' },
+  { name: `d_min_${ax}`, min: 0, max: 250, def: 30, until: V2025_12, label: `${axRu}: D min`, help: 'pid-gains' },
+  { name: `d_max_${ax}`, min: 0, max: 250, def: 40, since: V2025_12, label: `${axRu}: D max`, help: 'pid-gains' },
+];
+const simp = (name: string, min: number, label: string, extra: Partial<ParamDef> = {}): ParamDef =>
+  ({ name, min, max: 200, def: 100, since: V43, label, help: 'pid-simplified', ...extra });
 
 /** параметры рейтов по осям: rc_rate / srate / expo / rate_limit (rates/rates.ts) */
 const rateAxis = (ax: string, axRu: string): ParamDef[] => [
@@ -67,6 +80,19 @@ export const PARAMS: ParamDef[] = [
   { name: 'simplified_dterm_filter_multiplier', min: 10, max: 200, def: 100, since: V43, label: 'Simplified: множитель фильтров D-term', help: 'filter-simplified' },
   { name: 'rates_type', min: 0, max: 4, def: 3, options: RATES_TYPES, since: V41, label: 'Тип рейтов', help: 'rates-type' },
   { name: 'quickrates_rc_expo', min: 0, max: 1, def: 0, options: ['OFF', 'ON'], since: V43, label: 'Quick: expo как в RC Rate', help: 'rates-type' },
+  ...pidAxis('roll', 'Ролл'),
+  ...pidAxis('pitch', 'Питч'),
+  ...pidAxis('yaw', 'Яв'),
+  { name: 'simplified_pids_mode', min: 0, max: 2, def: 2, options: ['OFF', 'RP', 'RPY'], since: V43, label: 'Simplified PID: режим', help: 'pid-simplified' },
+  simp('simplified_master_multiplier', 0, 'Simplified: общий множитель'),
+  simp('simplified_pi_gain', 0, 'Simplified: P и I (отслеживание)'),
+  simp('simplified_i_gain', 0, 'Simplified: I (дрейф)'),
+  simp('simplified_d_gain', 0, 'Simplified: D (демпфирование)'),
+  simp('simplified_dmax_gain', 0, 'Simplified: динамика D', { until: V2025_12 }),
+  simp('simplified_d_max_gain', 0, 'Simplified: динамика D', { since: V2025_12 }),
+  simp('simplified_feedforward_gain', 0, 'Simplified: feedforward (резкость)'),
+  simp('simplified_pitch_d_gain', 0, 'Simplified: D питча к роллу'),
+  simp('simplified_pitch_pi_gain', 0, 'Simplified: P и I питча к роллу'),
   ...rateAxis('roll', 'Ролл'),
   ...rateAxis('pitch', 'Питч'),
   ...rateAxis('yaw', 'Яв'),

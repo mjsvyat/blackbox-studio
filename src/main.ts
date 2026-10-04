@@ -2,25 +2,28 @@ import './ui/styles.css';
 import { T } from './i18n/ru';
 import { clear, fmtTime, h } from './ui/dom';
 import { helpBtn, openGlossary } from './ui/help';
-import { AppState, openFile, openLog, set, state, subscribe } from './ui/store';
+import { AppState, exportReport, openFile, openLog, set, state, subscribe } from './ui/store';
 import { fileView } from './ui/views/file';
 import { flightView, motorsView } from './ui/views/flight';
 import { noiseView } from './ui/views/noise';
 import { summaryView } from './ui/views/summary';
 import { filtersView } from './ui/views/filters';
 import { ratesView } from './ui/views/rates';
+import { pidView } from './ui/views/pid';
+import { tuningView } from './ui/views/tuning';
+import { sessionsView } from './ui/views/sessions';
 
 const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan?: string[] }[] = [
   { id: 'file', title: T.tabs.file, needsLog: false },
   { id: 'summary', title: T.tabs.summary, needsLog: true },
   { id: 'noise', title: T.tabs.noise, needsLog: true },
   { id: 'filters', title: T.tabs.filters, needsLog: true },
-  { id: 'pid', title: T.tabs.pid, stage: 4, needsLog: true, plan: ['step response деконволюцией (как PIDtoolbox)', 'overshoot, время нарастания, трекинг setpoint', 'вклад P/I/D/F'] },
+  { id: 'pid', title: T.tabs.pid, needsLog: true },
   { id: 'rates', title: T.tabs.rates, needsLog: true },
   { id: 'motors', title: T.tabs.motors, needsLog: true },
   { id: 'flight', title: T.tabs.flight, needsLog: true },
-  { id: 'tuning', title: T.tabs.tuning, stage: 4, needsLog: true, plan: ['рекомендации по правилам с ID и версией', 'готовый CLI-блок и положения слайдеров Simplified Tuning', 'общая песочница: фильтры + рейты + прогноз PID с полосой неопределённости (этап 7)'] },
-  { id: 'compare', title: T.tabs.compare, stage: 5, needsLog: true, plan: ['сессии борта в IndexedDB, экспорт/импорт JSON', 'до / прогноз / после на одном графике', 'diff настроек из заголовков, честное сравнение по бинам газа'] },
+  { id: 'tuning', title: T.tabs.tuning, needsLog: true },
+  { id: 'compare', title: T.tabs.compare, needsLog: false },
 ];
 
 const app = document.getElementById('app')!;
@@ -64,6 +67,7 @@ function renderTopbar(): void {
     h('span', { class: 'file-name' }, state.fileName ?? T.noFile),
     sel ?? "",
     h('span', { class: 'spacer' }),
+    state.info ? h('button', { class: 'btn small', onclick: () => exportReport() }, T.rep.button) : '',
     h('button', { class: 'btn small', onclick: openGlossary }, T.help.glossary),
     h('button', { class: 'btn small', onclick: toggleTheme }, document.documentElement.dataset.theme === 'dark' ? T.themeLight : T.themeDark),
   );
@@ -94,7 +98,9 @@ function render(): void {
   clear(main);
   if (state.error) main.append(h('div', { class: 'panel bad' }, h('b', null, 'Ошибка: '), state.error));
   if (!state.structure) {
-    main.append(dropZone());
+    // сохранённые сессии можно смотреть и без открытого файла
+    if (state.tab === 'compare') main.append(sessionsView(track));
+    else main.append(dropZone());
     return;
   }
   const tab = TABS.find((t) => t.id === state.tab) ?? TABS[0];
@@ -108,6 +114,9 @@ function render(): void {
     case 'noise': main.append(noiseView(track)); break;
     case 'filters': main.append(filtersView(track)); break;
     case 'rates': main.append(ratesView(track)); break;
+    case 'pid': main.append(pidView(track)); break;
+    case 'tuning': main.append(tuningView()); break;
+    case 'compare': main.append(sessionsView(track)); break;
     case 'flight': main.append(flightView(track)); break;
     case 'motors': main.append(motorsView(track)); break;
     default:
@@ -122,7 +131,8 @@ function dropZone(): HTMLElement {
   const z = h('div', { class: 'drop' },
     h('h2', { style: 'justify-content:center' }, T.appTitle),
     h('p', null, T.dropHint),
-    h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile));
+    h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
+    h('div', { style: 'margin-top:12px' }, h('button', { class: 'btn small', onclick: () => set({ tab: 'compare' }) }, T.ses.title)));
   return z;
 }
 
@@ -148,7 +158,7 @@ function renderProgress(): void {
   progressLabel.textContent = `${p.stage || T.loading} · ${Math.round(p.fraction * 100)} %`;
 }
 
-const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy'];
+const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor'];
 subscribe((_s, changed) => {
   if (changed.has('progress')) renderProgress();
   if (RERENDER.some((k) => changed.has(k))) {

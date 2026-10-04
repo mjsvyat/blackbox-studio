@@ -23,6 +23,8 @@ export interface LineSpec {
   marks?: { x: number; label: string; color: string }[];
   /** горизонтальная линия (например, шум округления) */
   hline?: { y: number; label: string; color: string };
+  /** полосы (например, разброс оценки): заливка между lower и upper по тем же X */
+  bands?: { lower: ArrayLike<number>; upper: ArrayLike<number>; color: string }[];
   /** столбики снизу графика (гистограмма): центры по X, высоты 0…1 от нижних 35 % поля */
   bars?: { x: number[]; h: number[]; width: number; color: string };
   extraTitle?: HTMLElement | string | null;
@@ -62,6 +64,25 @@ export function lineChart(spec: LineSpec): { el: HTMLElement; destroy: () => voi
           const dpr = devicePixelRatio || 1;
           ctx.save();
           ctx.font = `${11 * dpr}px system-ui`;
+          for (const b of spec.bands ?? []) {
+            const xs = spec.x;
+            ctx.fillStyle = color(b.color);
+            ctx.globalAlpha = 0.18;
+            ctx.beginPath();
+            let started = false;
+            for (let i = 0; i < xs.length; i++) {
+              if (!Number.isFinite(b.upper[i])) continue;
+              const px = pl.valToPos(xs[i], 'x', true), py = pl.valToPos(b.upper[i], 'y', true);
+              if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+            }
+            for (let i = xs.length - 1; i >= 0; i--) {
+              if (!Number.isFinite(b.lower[i])) continue;
+              ctx.lineTo(pl.valToPos(xs[i], 'x', true), pl.valToPos(b.lower[i], 'y', true));
+            }
+            ctx.closePath();
+            if (started) ctx.fill();
+            ctx.globalAlpha = 1;
+          }
           if (spec.bars) {
             const b = spec.bars;
             ctx.fillStyle = color(b.color);

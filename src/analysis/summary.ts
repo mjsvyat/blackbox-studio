@@ -7,6 +7,7 @@ import { FlightMask } from './flightMask';
 import { HealthResult } from './health';
 import { NoiseResult } from './noise';
 import type { FilterBaseline } from '../filters/evaluate';
+import type { PidResult } from '../pid/analyze';
 
 export type Status = 'green' | 'yellow' | 'red' | 'grey';
 
@@ -49,7 +50,7 @@ export function highIsGood(v: number | null | undefined, t: { green: number; red
 const fx = (v: number | null | undefined, d: number, unit = ''): string =>
   v === null || v === undefined || !Number.isFinite(v) ? '—' : `${v.toFixed(d)}${unit}`;
 
-export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h: HealthResult, meta: LogMeta, fb: FilterBaseline | null = null): Card[] {
+export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h: HealthResult, meta: LogMeta, fb: FilterBaseline | null = null, pid: PidResult | null = null): Card[] {
   const cards: Card[] = [];
   const enough = fm.seconds >= 3 && nz.segments >= 2;
 
@@ -115,8 +116,63 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     cards.push({ id: 'filters', title: T.card.filters, status, phrase, extra, metrics, help: 'card-filters', tab: 'filters' });
   }
 
-  cards.push({ id: 'pid', title: T.card.pid, status: 'grey', phrase: T.phrase.pendingPid, extra: [], metrics: [], help: 'card-pid', tab: 'pid' });
-  cards.push({ id: 'ff', title: T.card.ff, status: 'grey', phrase: T.phrase.pendingFf, extra: [], metrics: [], help: 'card-ff', tab: 'pid' });
+  // --- отработка PID: step response по ролл/питч (яв — справочно) ---
+  {
+    const Pc = cfg.pid;
+    let status: Status = 'grey';
+    let phrase = T.phrase.noData;
+    const extra: string[] = [];
+    const metrics: CardMetric[] = [];
+    if (pid && enough) {
+      const rp = pid.axes.slice(0, 2);
+      const ok = rp.filter((a) => a.enough && a.metrics);
+      if (!ok.length) {
+        phrase = T.phrase.pidNoData(Math.min(...rp.map((a) => a.step?.activeS ?? 0)), Pc.minActiveS);
+      } else {
+        const sOs = ok.map((a) => lowIsGood(a.metrics!.overshootPct, Pc.overshootPct));
+        const sSt = ok.map((a) => highIsGood(a.metrics!.settle, Pc.settle));
+        status = worst(...sOs, ...sSt);
+        const wo = ok.reduce((b, a) => (a.metrics!.overshootPct > b.metrics!.overshootPct ? a : b));
+        const ws = ok.reduce((b, a) => (a.metrics!.settle < b.metrics!.settle ? a : b));
+        if (rank[lowIsGood(wo.metrics!.overshootPct, Pc.overshootPct)] >= 1) phrase = T.phrase.pidOvershoot(AXIS_NAMES_GEN[wo.axis], wo.metrics!.overshootPct);
+        else if (rank[highIsGood(ws.metrics!.settle, Pc.settle)] >= 1) phrase = T.phrase.pidSag(AXIS_NAMES_GEN[ws.axis], ws.metrics!.settle);
+        else phrase = T.phrase.pidOk(Math.max(...ok.map((a) => a.metrics!.overshootPct)));
+        if (ok.length < rp.length) extra.push(T.phrase.pidPartial);
+      }
+      for (const a of pid.axes) {
+        const m = a.metrics;
+        metrics.push({
+          label: T.phrase.pidMetric(AXIS_NAMES[a.axis]),
+          value: m ? `${fx(m.overshootPct, 0)} % · ${fx(m.delayMs, 0)} мс · ${fx(m.settle, 2)}${a.enough ? '' : ' (?)'}` : '—',
+          status: m && a.enough && a.axis < 2 ? worst(lowIsGood(m.overshootPct, Pc.overshootPct), highIsGood(m.settle, Pc.settle)) : 'grey',
+          help: 'pid-step',
+        });
+      }
+      metrics.push({ label: T.phrase.pidTrack, value: pid.axes.map((a) => fx(a.trackRms, 0)).join(' / ') + ' °/с', help: 'pid-track' });
+    }
+    cards.push({ id: 'pid', title: T.card.pid, status, phrase, extra, metrics, help: 'card-pid', tab: 'pid' });
+  }
+
+  // --- feedforward: дрожь F от радиоканала и его доля в PID ---
+  {
+    let status: Status = 'grey';
+    let phrase = T.phrase.noData;
+    const metrics: CardMetric[] = [];
+    if (pid && enough) {
+      const rp = pid.axes.slice(0, 2).filter((a) => Number.isFinite(a.ffJitter));
+      if (rp.length) {
+        const w = rp.reduce((b, a) => (a.ffJitter > b.ffJitter ? a : b));
+        status = lowIsGood(w.ffJitter, cfg.pid.ffJitter);
+        phrase = status === 'green' ? T.phrase.ffOk : T.phrase.ffJitter(AXIS_NAMES_GEN[w.axis], w.ffJitter);
+      }
+      for (const a of pid.axes) {
+        const c = a.contrib;
+        const sum = [c.P, c.I, c.D, c.F].filter((x) => Number.isFinite(x)).reduce((s, x) => s + x, 0);
+        metrics.push({ label: T.phrase.ffMetric(AXIS_NAMES[a.axis]), value: `${fx(a.ffJitter * 100, 0)} % · ${sum ? fx((c.F / sum) * 100, 0) : '—'} %`, status: a.axis < 2 ? lowIsGood(a.ffJitter, cfg.pid.ffJitter) : undefined, help: 'pid-ff-jitter' });
+      }
+    }
+    cards.push({ id: 'ff', title: T.card.ff, status, phrase, extra: [], metrics, help: 'card-ff', tab: 'pid' });
+  }
 
   // --- моторы ---
   {

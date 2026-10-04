@@ -3,17 +3,21 @@
 // здесь; в UI уходят только спектры, метрики и прореженные куски рядов.
 
 import { LogContext, buildContext } from '../analysis/context';
-import { FlightMask, buildFlightMask, idxAt } from '../analysis/flightMask';
-import { analyzeHealth } from '../analysis/health';
-import { NoiseResult, analyzeNoise } from '../analysis/noise';
-import { buildSummary } from '../analysis/summary';
+import { idxAt } from '../analysis/flightMask';
+import { byThrottle } from '../analysis/health';
+import { Analysis, adviseLog, analyzeLog, pidForecastCurves, snapshotLog } from '../analysis/pipeline';
+import { SAME } from '../sysid/axisModel';
+import { forecastAxis } from '../sysid/predict';
 import { Column, col, decodeLog } from '../decoder/decoder';
 import { FileStructure, blobReader, scanFile } from '../decoder/scan';
 import { toDb } from '../dsp/spectrum';
 import { T } from '../i18n/ru';
-import type { AnalysisPayload, FiltersPayload, FromWorker, LogInfo, RatesPayload, ToWorker } from './protocol';
-import { FilterBaseline, buildBaseline, evaluate, quantFloorPsd } from '../filters/evaluate';
-import { FilterContext, contextFromHeader, paramsFromHeader, simplifiedConsistent } from '../filters/settings';
+import type { AdvicePayload, AnalysisPayload, FiltersPayload, FromWorker, LogInfo, PidPayload, RatesPayload, ToWorker } from './protocol';
+import { simplifiedFromHeader } from '../pid/gains';
+import type { AdvisorResult, BoardKnowledge } from '../advisor/advisor';
+import type { SessionSnapshot } from '../sessions/snapshot';
+import { FilterBaseline, evaluate, quantFloorPsd } from '../filters/evaluate';
+import { FilterContext, simplifiedConsistent } from '../filters/settings';
 import { RatesWork, buildRatesBase, evalRates, newSetpoint } from '../rates/analyze';
 import { ratesFromHeader } from '../rates/rates';
 
@@ -25,15 +29,18 @@ let ctx: LogContext | null = null;
 let crossesWrap = false;
 let range: { t0: number; t1: number } | null = null;
 let series: Map<string, ArrayLike<number>> = new Map();
-// для фильтров: последняя маска/всплески и закэшированная базовая оценка
+// результат анализа на текущей маске (pipeline.ts) и производные для вкладок
+let cur: Analysis | null = null;
 let lastMask: Uint8Array | null = null;
-let lastBursts: NoiseResult['bursts'] = [];
 let lastNoiseStatus = 'grey';
 let filterBase: FilterBaseline | null = null;
 let filtersPayload: FiltersPayload | null = null;
 let filterCtx: FilterContext | null = null;
 // для рейтов: база на текущей маске (сбрасывается при смене участка)
 let ratesWork: RatesWork | null = null;
+let lastAdvice: AdvisorResult | null = null;
+let fileName = '';
+let logIndex = -1;
 
 const post = (m: FromWorker, transfer: Transferable[] = []): void => ctxW.postMessage(m, transfer);
 const progress = (stage: string, fraction: number): void => post({ type: 'progress', stage, fraction });
@@ -44,6 +51,7 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
     if (m.type === 'scan') {
       file = m.file;
       ctx = null;
+      fileName = m.name;
       structure = await scanFile(blobReader(m.file), (f, stage) => progress(`${T.scanning}: ${stage}`, f));
       post({ type: 'scanned', structure, name: m.name });
     } else if (m.type === 'open') {
@@ -72,6 +80,14 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
         sp.forEach((a, i) => series.set(`spN${i}`, a));
         post({ type: 'ratesEval', reqId: m.reqId, ev: evalRates(ctx, ratesWork, sp) });
       }
+    } else if (m.type === 'pidInit') {
+      if (ctx && cur?.pid) post({ type: 'pid', payload: pidPayload(ctx) });
+    } else if (m.type === 'pidPredict') {
+      if (ctx && cur) post({ type: 'pidPredict', reqId: m.reqId, axes: pidForecastCurves(cur, m.changes, m.bandScale) });
+    } else if (m.type === 'adviceInit') {
+      if (ctx) post({ type: 'advice', payload: computeAdvice(ctx, m.board) });
+    } else if (m.type === 'snapshot') {
+      if (ctx) post({ type: 'snapshot', reqId: m.reqId, snap: snapshot(ctx, m.board) });
     } else if (m.type === 'series') {
       const r = getSeries(m.keys, m.t0, m.t1, m.width);
       post({ type: 'series', reqId: m.reqId, ...r }, [r.x.buffer, ...r.ys.map((y) => y.buffer)]);
@@ -86,6 +102,7 @@ async function openLog(index: number): Promise<void> {
   const L = structure.logs.find((l) => l.index === index);
   if (!L) throw new Error(`Нет лога №${index}`);
   crossesWrap = L.crossesWrap;
+  logIndex = index;
   const end = L.crossesWrap && L.wrapBoundary ? L.wrapBoundary : L.end;
   progress(T.loading, 0);
   const buf = new Uint8Array(await file.slice(L.start, end).arrayBuffer());
@@ -132,25 +149,23 @@ let lastHealthModes: LogInfo['modes'] = [];
 
 function analyze(): AnalysisPayload {
   const c = ctx!;
-  const fm: FlightMask = buildFlightMask(c, range);
-  const nz: NoiseResult = analyzeNoise(c, fm);
-  const h = analyzeHealth(c, fm);
+  const A = analyzeLog(c, range, { crossesWrap }, (what, err) => console.error(what, err));
+  cur = A;
+  const { fm, nz, h, cards } = A;
   lastHealthModes = h.modes;
   // маска как ряд для графика
   const maskSeries = new Float32Array(c.n);
   for (let i = 0; i < c.n; i++) maskSeries[i] = fm.mask[i] ? 100 : 0;
   series.set('mask', maskSeries);
   lastMask = fm.mask;
-  lastBursts = nz.bursts;
   ratesWork = null;
-  // модель фильтров на текущих настройках (самопроверка + задержка для карточки)
+  lastAdvice = null;
   filtersPayload = null;
   try {
     filtersPayload = computeFilters(c);
   } catch (err) {
     console.error('filters', err);
   }
-  const cards = buildSummary(c, fm, nz, h, { crossesWrap }, filtersPayload?.base ?? null);
   lastNoiseStatus = cards.find((x) => x.id === 'noise')?.status ?? 'grey';
   if (filtersPayload) filtersPayload.noiseStatus = lastNoiseStatus;
   const dbArr = (p: { psd: Float64Array } | null): Float32Array | null => (p ? Float32Array.from(p.psd, toDb) : null);
@@ -188,14 +203,15 @@ function analyze(): AnalysisPayload {
       degraded: nz.degraded,
     },
     anomalies: h.anomalies,
+    health: { motors: h.motors, power: h.power, link: h.link, thr: byThrottle(c, fm) },
   };
 }
 
 function computeFilters(c: LogContext): FiltersPayload {
-  const H = c.log.header;
-  const params = paramsFromHeader(H);
-  filterCtx = contextFromHeader(H, c.fw.code);
-  const { base, sim } = buildBaseline(c, lastMask!, lastBursts, params, filterCtx);
+  const f = cur!.filters;
+  if (!f) throw new Error('модель фильтров не построена');
+  const { params, base, sim } = f;
+  filterCtx = f.fctx;
   filterBase = base;
   // дорожки: каждые ~50 мс
   const step = Math.max(1, Math.round(c.fs * 0.05));
@@ -217,6 +233,37 @@ function computeRates(c: LogContext): { payload: RatesPayload | null; why?: stri
   // «новый» setpoint до первого пересчёта песочницы = записанный
   for (let a = 0; a < 3; a++) if (!series.has(`spN${a}`) && series.has(`sp${a}`)) series.set(`spN${a}`, series.get(`sp${a}`)!);
   return { payload: { ...ratesWork.base, fwCode: c.fw.code } };
+}
+
+function pidPayload(c: LogContext): PidPayload {
+  const sy = cur!.sysid;
+  const model = sy ? {
+    t: sy.t,
+    axes: sy.axes.map((m) => ({
+      ...forecastAxis(m, SAME, sy.t),
+      tauMs: m.plant.a > 0 ? (-1000 / m.fs) / Math.log(m.plant.a) : NaN,
+      plantDelayMs: (m.plant.d / m.fs) * 1000,
+      pFit: m.ctrl.pFit, dFit: m.ctrl.dFit, fFit: m.ctrl.fFit,
+    })),
+  } : null;
+  return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header), model };
+}
+
+let lastBoardKey = '';
+function computeAdvice(c: LogContext, board?: BoardKnowledge): AdvicePayload {
+  const key = JSON.stringify(board ?? null);
+  if (!lastAdvice || key !== lastBoardKey) {
+    lastAdvice = adviseLog(cur!, (what, err) => console.error(what, err), board);
+    lastBoardKey = key;
+  }
+  return { ...lastAdvice, fwCode: c.fw.code };
+}
+
+function snapshot(c: LogContext, board?: BoardKnowledge): SessionSnapshot {
+  computeAdvice(c, board);
+  const L = structure?.logs.find((l) => l.index === logIndex);
+  const byteEnd = L ? (L.crossesWrap && L.wrapBoundary ? L.wrapBoundary : L.end) : undefined;
+  return snapshotLog(cur!, lastAdvice!, { fileName, logIndex, byteStart: L?.start, byteEnd }, (what, err) => console.error(what, err), board?.pidBandScale ?? 1);
 }
 
 /** производные ряды в физических единицах */

@@ -278,3 +278,49 @@ export function analyzeHealth(ctx: LogContext, fm: FlightMask): HealthResult {
     power, link, anomalies, modes,
   };
 }
+
+export interface ThrottleDetail {
+  /** центры бинов газа, % */
+  pct: number[];
+  seconds: number[];
+  /** средняя команда каждого мотора, % */
+  motorCmd: number[][];
+  /** средние обороты каждого мотора, Гц (null — нет eRPM) */
+  motorHz: number[][] | null;
+  /** среднее напряжение на банку, В (null — нет датчика) */
+  cellV: number[] | null;
+  /** средний ток, А (null — нет датчика) */
+  amp: number[] | null;
+}
+
+/** моторы и питание по бинам газа (чистый полёт): кто больше нагружен и как садится пакет */
+export function byThrottle(ctx: LogContext, fm: FlightMask, bins = 10): ThrottleDetail {
+  const { n, fs, motorCount, motorNorm, log } = ctx;
+  const cnt = new Float64Array(bins);
+  const cmd = Array.from({ length: motorCount }, () => new Float64Array(bins));
+  const hz = ctx.motorHzEach ? Array.from({ length: motorCount }, () => new Float64Array(bins)) : null;
+  const vb = col(log, 'vbatLatest');
+  const amp = ctx.hasAmperage ? col(log, 'amperageLatest') : null;
+  const v = vb && ctx.cells ? new Float64Array(bins) : null;
+  const a = amp ? new Float64Array(bins) : null;
+  for (let i = 0; i < n; i++) {
+    if (!fm.mask[i]) continue;
+    const b = Math.min(bins - 1, Math.max(0, Math.floor((ctx.thrPct[i] / 100) * bins)));
+    cnt[b]++;
+    for (let m = 0; m < motorCount; m++) {
+      cmd[m][b] += motorNorm[m][i] * 100;
+      if (hz) hz[m][b] += ctx.motorHzEach![m][i];
+    }
+    if (v && vb) v[b] += vb[i] / 100 / ctx.cells;
+    if (a && amp) a[b] += amp[i] / 100;
+  }
+  const avg = (x: Float64Array): number[] => Array.from(x, (s, b) => (cnt[b] >= fs * 0.5 ? s / cnt[b] : NaN));
+  return {
+    pct: Array.from({ length: bins }, (_, b) => ((b + 0.5) * 100) / bins),
+    seconds: Array.from(cnt, (c) => c / fs),
+    motorCmd: cmd.map(avg),
+    motorHz: hz ? hz.map(avg) : null,
+    cellV: v ? avg(v) : null,
+    amp: a ? avg(a) : null,
+  };
+}
