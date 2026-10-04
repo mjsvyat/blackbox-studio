@@ -11,7 +11,7 @@ import { toDb } from '../dsp/spectrum';
 import { T } from '../i18n/ru';
 import type { AdvicePayload, AnalysisPayload, FiltersPayload, FromWorker, LogInfo, PidPayload, RatesPayload, ToWorker } from './protocol';
 import { simplifiedFromHeader } from '../pid/gains';
-import type { AdvisorResult } from '../advisor/advisor';
+import type { AdvisorResult, BoardKnowledge } from '../advisor/advisor';
 import type { SessionSnapshot } from '../sessions/snapshot';
 import { FilterBaseline, evaluate, quantFloorPsd } from '../filters/evaluate';
 import { FilterContext, simplifiedConsistent } from '../filters/settings';
@@ -80,9 +80,9 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
     } else if (m.type === 'pidInit') {
       if (ctx && cur?.pid) post({ type: 'pid', payload: pidPayload(ctx) });
     } else if (m.type === 'adviceInit') {
-      if (ctx) post({ type: 'advice', payload: computeAdvice(ctx) });
+      if (ctx) post({ type: 'advice', payload: computeAdvice(ctx, m.board) });
     } else if (m.type === 'snapshot') {
-      if (ctx) post({ type: 'snapshot', reqId: m.reqId, snap: snapshot(ctx) });
+      if (ctx) post({ type: 'snapshot', reqId: m.reqId, snap: snapshot(ctx, m.board) });
     } else if (m.type === 'series') {
       const r = getSeries(m.keys, m.t0, m.t1, m.width);
       post({ type: 'series', reqId: m.reqId, ...r }, [r.x.buffer, ...r.ys.map((y) => y.buffer)]);
@@ -233,14 +233,21 @@ function pidPayload(c: LogContext): PidPayload {
   return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header) };
 }
 
-function computeAdvice(c: LogContext): AdvicePayload {
-  if (!lastAdvice) lastAdvice = adviseLog(cur!, (what, err) => console.error(what, err));
+let lastBoardKey = '';
+function computeAdvice(c: LogContext, board?: BoardKnowledge): AdvicePayload {
+  const key = JSON.stringify(board ?? null);
+  if (!lastAdvice || key !== lastBoardKey) {
+    lastAdvice = adviseLog(cur!, (what, err) => console.error(what, err), board);
+    lastBoardKey = key;
+  }
   return { ...lastAdvice, fwCode: c.fw.code };
 }
 
-function snapshot(c: LogContext): SessionSnapshot {
-  computeAdvice(c);
-  return snapshotLog(cur!, lastAdvice!, { fileName, logIndex }, (what, err) => console.error(what, err));
+function snapshot(c: LogContext, board?: BoardKnowledge): SessionSnapshot {
+  computeAdvice(c, board);
+  const L = structure?.logs.find((l) => l.index === logIndex);
+  const byteEnd = L ? (L.crossesWrap && L.wrapBoundary ? L.wrapBoundary : L.end) : undefined;
+  return snapshotLog(cur!, lastAdvice!, { fileName, logIndex, byteStart: L?.start, byteEnd }, (what, err) => console.error(what, err));
 }
 
 /** производные ряды в физических единицах */

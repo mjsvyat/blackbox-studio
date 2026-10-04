@@ -1,6 +1,6 @@
 {
   "_comment": "Пороги анализа и светофора. Меняются здесь, а не в коде. У каждого порога — история изменений в _history.",
-  "version": "1.0",
+  "version": "1.1",
   "flightMask": {
     "throttleMinPct": 8,
     "motorMinNorm": 0.2,
@@ -189,10 +189,21 @@
     "_unitNotch": "резонанс рамы с выступом ≥ framePeakMinDb вне диапазона дин. нотча → расширить диапазон с запасом notchMarginPct %",
     "clipNearImpactS": 1.5,
     "_unitClip": "упор гироскопа дальше clipNearImpactS от удара считается срывом в воздухе → R-MECH-DESYNC-01",
+    "disabledRules": [],
+    "cautionMinApplied": 2,
+    "cautionWorseShare": 0.66,
+    "_unitBoard": "disabledRules — правила, отключённые для всех (крайняя мера из CLAUDE.md); правило, применённое на борту ≥ cautionMinApplied раз и ухудшившее результат в ≥ cautionWorseShare случаев, — «с осторожностью» (не выбирается само)",
     "_history": [
       {
         "version": "1.0",
         "why": "стартовые; dtermRms: 2026.6.1 №4 — 1.6–2.9, 4.5.2 (gyro ×160, D ×140) — 8–25 по роллу"
+      },
+      {
+        "version": "1.1",
+        "was": "два «рискованных» изменения за итерацию, срывы не учитывались",
+        "now": "maxSafetyChanges = 1; R-MECH-DESYNC-01 блокирует настройки при срывах",
+        "why": "на логе со срывами советчик предлагал ослабить сразу оба фильтра",
+        "by": "INC-0001"
       }
     ]
   },
@@ -217,6 +228,22 @@
       "settle": 0.03,
       "_unit": "разница меньше погрешности метода step response — «≈»: п.п., мс, доля"
     },
+    "_history": [
+      {
+        "version": "1.0",
+        "why": "стартовые"
+      }
+    ]
+  },
+  "incidents": {
+    "dtermRisePct": 15,
+    "noiseRisePct": 20,
+    "overshootRisePp": 5,
+    "settleDrop": 0.05,
+    "delayRiseMs": 0.3,
+    "peakRiseDb": 6,
+    "peakMinHz": 50,
+    "_unit": "признаки в автоматическом разборе инцидента: рост D-term / шума после фильтров, %; рост перерегулирования, п.п.; уход уровня step response от 1; рост задержки фильтров, мс; новый пик — спектр после фильтров вырос на peakRiseDb дБ (сглажено по 5 Гц) выше peakMinHz",
     "_history": [
       {
         "version": "1.0",

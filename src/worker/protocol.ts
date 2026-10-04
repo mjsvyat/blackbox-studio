@@ -12,7 +12,7 @@ import type { RatesBase, RatesEval } from '../rates/analyze';
 import type { RateProfile } from '../rates/rates';
 import type { PidResult } from '../pid/analyze';
 import type { SimplifiedPids } from '../pid/gains';
-import type { AdvisorResult } from '../advisor/advisor';
+import type { AdvisorResult, BoardKnowledge } from '../advisor/advisor';
 import type { SessionSnapshot } from '../sessions/snapshot';
 
 export type ToWorker =
@@ -24,8 +24,8 @@ export type ToWorker =
   | { type: 'filtersEval'; reqId: number; params: FilterParams }
   | { type: 'ratesInit' }
   | { type: 'pidInit' }
-  | { type: 'adviceInit' }
-  | { type: 'snapshot'; reqId: number }
+  | { type: 'adviceInit'; board?: BoardKnowledge }
+  | { type: 'snapshot'; reqId: number; board?: BoardKnowledge }
   | { type: 'ratesEval'; reqId: number; profile: RateProfile };
 
 export interface FiltersPayload {

@@ -2,7 +2,7 @@
 // Его вызывает воркер; его же вызывают тесты и регрессионные случаи (tests/cases): что
 // видит пользователь, то и проверяется.
 
-import { AdvisorResult, advisorInputFrom, runAdvisor } from '../advisor/advisor';
+import { AdvisorResult, BoardKnowledge, advisorInputFrom, runAdvisor } from '../advisor/advisor';
 import { col } from '../decoder/decoder';
 import { FilterBaseline, FilterEval, buildBaseline, evaluate } from '../filters/evaluate';
 import { FilterContext, FilterParams, contextFromHeader, paramsFromHeader } from '../filters/settings';
@@ -49,9 +49,11 @@ export function analyzeLog(c: LogContext, range: { t0: number; t1: number } | nu
 }
 
 /** советы + ожидаемый эффект советов по фильтрам (точная модель, как в песочнице) */
-export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => void = () => {}): AdvisorResult {
+export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => void = () => {}, board?: BoardKnowledge, override: Record<string, unknown> = {}): AdvisorResult {
   const { c, nz, h, filters: f } = a;
-  const res = runAdvisor(advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header)));
+  const inp = advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header));
+  if (board) inp.board = board;
+  const res = runAdvisor(inp, override);
   if (f) {
     const cur = f.base.current;
     const mx = (v: number[]): number => Math.max(...v.filter((x) => Number.isFinite(x)));
@@ -76,7 +78,7 @@ export function planFilterEval(a: Analysis, adv: AdvisorResult): FilterEval | nu
   return evaluate(a.c, { ...f.params, ...adv.to }, f.fctx, f.base.segments, f.base.n, f.base.current.op).ev;
 }
 
-export function snapshotLog(a: Analysis, adv: AdvisorResult, src: { fileName: string; logIndex: number }, onError: (what: string, e: unknown) => void = () => {}): SessionSnapshot {
+export function snapshotLog(a: Analysis, adv: AdvisorResult, src: { fileName: string; logIndex: number; byteStart?: number; byteEnd?: number }, onError: (what: string, e: unknown) => void = () => {}): SessionSnapshot {
   const { c } = a;
   let pe: FilterEval | null = null;
   try {
@@ -88,7 +90,7 @@ export function snapshotLog(a: Analysis, adv: AdvisorResult, src: { fileName: st
   const H = c.log.header;
   return buildSnapshot({
     source: {
-      fileName: src.fileName, logIndex: src.logIndex, datetime: H['Log start datetime'] || '', durationS: c.tSec[c.n - 1],
+      fileName: src.fileName, logIndex: src.logIndex, byteStart: src.byteStart, byteEnd: src.byteEnd, datetime: H['Log start datetime'] || '', durationS: c.tSec[c.n - 1],
       firmware: c.fw.raw, fwCode: c.fw.code, board: H['Board information'] || '', craft: H['Craft name'] || '', fs: c.fs,
     },
     header: H, cards: a.cards, noise: a.nz, maskSeconds: a.fm.seconds, thrPct: c.thrPct,

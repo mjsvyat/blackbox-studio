@@ -6,7 +6,12 @@ import type { FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
 import type { RatesEval } from '../rates/analyze';
 import type { SessionSnapshot } from '../sessions/snapshot';
-import { Project, SessionRecord, SessionStore, idbBackend, memoryBackend } from '../sessions/db';
+import { BoardProfile, Project, SessionRecord, SessionStore, idbBackend, memoryBackend } from '../sessions/db';
+import type { BoardKnowledge } from '../advisor/advisor';
+import { Incident, autoAnalyze, boardKnowledge, lastGood, ruleStats } from '../incidents/incidents';
+import { buildCaseFiles, caseFolderName } from '../incidents/caseExport';
+import { zip } from '../incidents/zip';
+import { casePlots } from './charts/png';
 import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
 
@@ -47,6 +52,13 @@ export interface AppState {
   cmpAxis: number;
   sessionsBusy: boolean;
   sessionsMsg: string | null;
+  incidents: Incident[];
+  /** форма «сообщить о проблеме» для сессии */
+  incidentForm: string | null;
+  /** панель «вернуть прошлые настройки» для сессии */
+  rollbackFor: string | null;
+  /** знание о борте открытого лога (для советчика) */
+  board: BoardKnowledge | null;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -83,6 +95,10 @@ export const state: AppState = {
   cmpAxis: 0,
   sessionsBusy: false,
   sessionsMsg: null,
+  incidents: [],
+  incidentForm: null,
+  rollbackFor: null,
+  board: null,
 };
 
 const listeners = new Set<Listener>();
@@ -174,7 +190,9 @@ worker.onerror = (e) => {
 
 const send = (m: ToWorker): void => worker.postMessage(m);
 
+let openedFile: File | null = null;
 export function openFile(f: File): void {
+  openedFile = f;
   set({ progress: { stage: 'Чтение файла', fraction: 0 }, error: null });
   send({ type: 'scan', file: f, name: f.name });
 }
@@ -258,7 +276,22 @@ export function ensureAdvice(): void {
   if (state.advice || adviceRequested || !state.info) return;
   adviceRequested = true;
   set({ progress: { stage: 'Советчик', fraction: 0.5 } });
-  send({ type: 'adviceInit' });
+  // знание о борте (правила «с осторожностью», профиль) — из базы сессий
+  currentBoard().then((board) => {
+    set({ board });
+    send({ type: 'adviceInit', board: board ?? undefined });
+  });
+}
+
+/** ключ борта открытого лога — как у проекта (Craft name или плата) */
+const craftKeyOf = (info: { craft: string; board: string }): string => info.craft || info.board || 'Борт';
+
+async function currentBoard(): Promise<BoardKnowledge | null> {
+  if (!state.info) return null;
+  const st = await db();
+  const p = (await st.projects()).find((x) => x.craftKey === craftKeyOf(state.info!));
+  if (!p) return null;
+  return boardKnowledge(ruleStats(await st.sessions(p.id), await st.incidents(p.id)), p.profile ?? {});
 }
 
 // --- сессии (этап 5) ---
@@ -282,15 +315,16 @@ function db(): Promise<SessionStore> {
 
 export async function loadSessions(): Promise<void> {
   const st = await db();
-  set({ projects: await st.projects(), sessions: await st.sessions() });
+  set({ projects: await st.projects(), sessions: await st.sessions(), incidents: await st.incidents() });
 }
 
 const snapPending = new Map<number, (s: SessionSnapshot) => void>();
-function requestSnapshot(): Promise<SessionSnapshot> {
+async function requestSnapshot(): Promise<SessionSnapshot> {
+  const board = await currentBoard();
   const reqId = ++reqSeq;
   return new Promise((res) => {
     snapPending.set(reqId, res);
-    send({ type: 'snapshot', reqId });
+    send({ type: 'snapshot', reqId, board: board ?? undefined });
   });
 }
 
@@ -359,4 +393,52 @@ export async function importProject(f: File): Promise<void> {
   } catch (e) {
     set({ sessionsMsg: `Импорт не удался: ${e instanceof Error ? e.message : String(e)}` });
   }
+}
+
+// --- журнал инцидентов (этап 6) ---
+export async function saveIncident(data: Omit<Incident, 'id' | 'createdAt' | 'status' | 'resolution' | 'projectId' | 'beforeId'>): Promise<void> {
+  const st = await db();
+  const after = state.sessions.find((s) => s.id === data.sessionId);
+  if (!after) return;
+  // «было» — предыдущая сессия этого борта
+  const prev = state.sessions.filter((s) => s.projectId === after.projectId && (s.snap.source.datetime || s.savedAt) < (after.snap.source.datetime || after.savedAt)).pop();
+  const inc: Incident = { ...data, id: await st.nextIncidentId(), projectId: after.projectId, beforeId: prev?.id ?? null, createdAt: new Date().toISOString(), status: 'open', resolution: '' };
+  await st.saveIncident(inc);
+  await loadSessions();
+  set({ incidentForm: null, sessionsMsg: `Инцидент ${inc.id} записан.`, advice: null });
+}
+
+export async function updateIncident(i: Incident): Promise<void> {
+  await (await db()).saveIncident(i);
+  await loadSessions();
+}
+
+export async function saveProfile(p: Project, profile: BoardProfile): Promise<void> {
+  await (await db()).saveProject({ ...p, profile });
+  await loadSessions();
+  set({ advice: null });
+}
+
+/** байты лога из открытого файла, если это тот же файл */
+async function logBytes(s: SessionRecord | null): Promise<Uint8Array | undefined> {
+  const src = s?.snap.source;
+  if (!src || !openedFile || openedFile.name !== src.fileName || src.byteStart === undefined || src.byteEnd === undefined) return undefined;
+  return new Uint8Array(await openedFile.slice(src.byteStart, src.byteEnd).arrayBuffer());
+}
+
+export async function exportCase(i: Incident): Promise<void> {
+  const after = state.sessions.find((s) => s.id === i.sessionId)!;
+  const before = i.beforeId ? state.sessions.find((s) => s.id === i.beforeId) ?? null : null;
+  const auto = before ? autoAnalyze(before.snap, after.snap, i) : null;
+  const good = lastGood(after, state.sessions, state.incidents);
+  const files = buildCaseFiles({
+    incident: i, before, after, auto, good,
+    logs: { before: await logBytes(before), after: await logBytes(after) },
+    plots: await casePlots(before?.snap ?? null, after.snap),
+  });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([zip(files)], { type: 'application/zip' }));
+  a.download = `${caseFolderName(i)}.zip`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }

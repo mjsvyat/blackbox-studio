@@ -10,6 +10,7 @@ import type { SessionSnapshot } from '../../sessions/snapshot';
 import { lineChart } from '../charts/line';
 import { fmt, fmtTime, h } from '../dom';
 import { helpBtn } from '../help';
+import { incidentForm, journal, profilePanel, rollbackPanel } from './incidents';
 import {
   deleteProject, deleteSession, exportProject, importProject, loadSessions, renameProject, saveCurrentSession, set, state,
   updateSessionNotes,
@@ -54,10 +55,14 @@ export function sessionsView(track: (d: () => void) => void): HTMLElement {
         h('button', { class: 'btn small', onclick: () => { if (confirm(T.ses.delProjectQ)) deleteProject(p.id); } }, T.ses.del)),
       h('table', { class: 'grid small' },
         h('thead', null, h('tr', null, ...Object.values(T.ses.col).map((c) => h('th', null, c)), h('th', null, ''))),
-        h('tbody', null, ss.map((r) => row(r))))));
+        h('tbody', null, ss.map((r) => row(r)))),
+      profilePanel(p),
+      journal(p)));
   }
   if (state.sessions.length) list.append(h('div', { class: 'muted small', style: 'margin-top:6px' }, T.ses.pickHint));
   out.append(list);
+  if (state.incidentForm) out.append(incidentForm(state.incidentForm));
+  if (state.rollbackFor) out.append(rollbackPanel(state.rollbackFor));
 
   // ---------- сравнение ----------
   const A = state.sessions.find((s) => s.id === state.cmpA);
@@ -82,7 +87,10 @@ function row(r: SessionRecord): HTMLElement {
     h('td', null, nt),
     h('td', null, radio('cmpA')),
     h('td', null, radio('cmpB')),
-    h('td', null, h('button', { class: 'btn small', onclick: () => { if (confirm(T.ses.delSessionQ)) deleteSession(r.id); } }, '×')));
+    h('td', { style: 'white-space:nowrap' },
+      h('button', { class: 'btn small', title: T.inc.report, onclick: () => set({ incidentForm: r.id }) }, '⚠'),
+      h('button', { class: 'btn small', title: T.inc.rollbackTitle, onclick: () => set({ rollbackFor: state.rollbackFor === r.id ? null : r.id }) }, '↩'),
+      h('button', { class: 'btn small', onclick: () => { if (confirm(T.ses.delSessionQ)) deleteSession(r.id); } }, '×')));
 }
 
 function compareBlock(Ar: SessionRecord, Br: SessionRecord, track: (d: () => void) => void): HTMLElement {

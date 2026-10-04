@@ -1,0 +1,26 @@
+{
+  "format": "blackbox-studio-case",
+  "v": 1,
+  "_comment": "Демонстрационный случай: симптом пилота выдуман, лог и правка — настоящие (найдены при разработке этапа 4). Показывает весь цикл: инцидент → разбор → правка правила → регрессионная проверка.",
+  "incident": {
+    "id": "INC-0001",
+    "createdAt": "2026-10-04T10:00:00.000Z",
+    "symptoms": ["hot-motors"],
+    "text": "Применил оба совета (ослабить фильтры гиро и D-term). После 30 с висения моторы горячие.",
+    "tLog": null,
+    "severity": 2,
+    "motorTemp": 2,
+    "media": "",
+    "status": "resolved"
+  },
+  "regression": {
+    "log": { "fixture": "blackbox-2026-09-06.txt", "logIndex": 4 },
+    "checks": [
+      { "type": "first", "rule": "R-MECH-DESYNC-01" },
+      { "type": "not-selected", "rule": "R-FLT-GYRO-RAISE-01" },
+      { "type": "not-selected", "rule": "R-FLT-DTERM-RAISE-01" },
+      { "type": "metric", "path": "noise.axes.0.rmsFilt", "max": 1.5 }
+    ],
+    "oldBehavior": { "maxSafetyChanges": 2, "disabledRules": ["R-MECH-DESYNC-01"] }
+  }
+}

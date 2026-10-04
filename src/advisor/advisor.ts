@@ -13,7 +13,9 @@ import { clampParam, paramAvailable } from '../params/registry';
 import { PidGains, SimplifiedPids, simplifiedPids, gainsToCli, simplifiedToCli } from '../pid/gains';
 import type { PidResult } from '../pid/analyze';
 
-const A = cfg.advisor;
+type AdvisorCfg = typeof cfg.advisor;
+/** пороги текущего прогона (по умолчанию — из конфига; тесты случаев могут подменить) */
+let A: AdvisorCfg = cfg.advisor;
 
 export type AdviceKind = 'mechanic' | 'tune' | 'info' | 'flight';
 
@@ -36,7 +38,9 @@ export interface Advice {
   tab: string;
   /** выбрано в эту итерацию; иначе — почему отложено */
   selected: boolean;
-  deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky';
+  deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky' | 'caution';
+  /** на этом борту правило уже ухудшало результат (этап 6) */
+  caution?: { worse: number; n: number; incidents: string[] };
   /** ожидаемый эффект по точной модели (фильтры) — заполняет воркер */
   effect?: { delay100: [number, number]; delayD100: [number, number]; dterm: [number, number]; gyro: [number, number] };
   priority: number;
@@ -58,6 +62,17 @@ export interface AdvisorInput {
   dKind: 'd_max' | 'd_min';
   motors: { satPct: number; spreadPct: number | null; desyncs: number; airClips: number; clipT: number[] };
   power: { resistanceMOhm: number | null; rippleP99: number | null; cells: number };
+  /** знание о борте (профиль и история, этап 6) */
+  board?: BoardKnowledge;
+}
+
+export interface BoardKnowledge {
+  /** правила, отключённые для этого борта */
+  disabledRules?: string[];
+  /** D на этом борту поднимать нельзя (греет моторы) */
+  dSensitive?: boolean;
+  /** правило → сколько раз применено и сколько раз стало хуже, инциденты */
+  caution?: Record<string, { worse: number; n: number; incidents: string[] }>;
 }
 
 export interface AdvisorResult {
@@ -136,7 +151,8 @@ function pidChange(inp: AdvisorInput, slider: keyof SimplifiedPids, direct: 'P' 
   return { from, changes, sliders: [] };
 }
 
-export function runAdvisor(inp: AdvisorInput): AdvisorResult {
+export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}): AdvisorResult {
+  A = { ...cfg.advisor, ...override };
   const c: Ctx = { inp, out: [] };
   const N = cfg.noise, M = cfg.motors, P = cfg.power;
   const nz = inp.noise;
@@ -214,7 +230,7 @@ export function runAdvisor(inp: AdvisorInput): AdvisorResult {
       const om = os.metrics!;
       if (om.overshootPct >= A.overshootHigh) {
         const dHot = isNum(dMax) && dMax >= A.dtermRms.green;
-        if (!dHot && !mechNoise) {
+        if (!dHot && !mechNoise && !inp.board?.dSensitive) {
           add(c, { id: 'R-PID-OVERSHOOT-01', version: 1, kind: 'tune', severity: 'yellow', inputs: { os: +om.overshootPct.toFixed(0), high: A.overshootHigh, axis: os.axis, dterm: isNum(dMax) ? +dMax.toFixed(1) : '—', way: 'd' }, tab: 'pid', priority: 20, safety: true, ...pidChange(inp, 'd', 'D', 1, g) });
         } else {
           add(c, { id: 'R-PID-OVERSHOOT-01', version: 1, kind: 'tune', severity: 'yellow', inputs: { os: +om.overshootPct.toFixed(0), high: A.overshootHigh, axis: os.axis, dterm: isNum(dMax) ? +dMax.toFixed(1) : '—', way: 'p' }, tab: 'pid', priority: 20, ...pidChange(inp, 'pi', 'P', -1, g) });
@@ -228,6 +244,14 @@ export function runAdvisor(inp: AdvisorInput): AdvisorResult {
     }
   }
 
+  // ---------- знание о борте: отключённые правила, правила «с осторожностью» ----------
+  const off = new Set([...(A.disabledRules ?? []), ...(inp.board?.disabledRules ?? [])]);
+  c.out = c.out.filter((a) => !off.has(a.id));
+  for (const a of c.out) {
+    const cs = inp.board?.caution?.[a.id];
+    if (cs) a.caution = cs;
+  }
+
   // ---------- выбор на эту итерацию ----------
   const mech = c.out.some((a) => a.kind === 'mechanic' && a.severity === 'red');
   const used = new Set<string>();
@@ -237,6 +261,7 @@ export function runAdvisor(inp: AdvisorInput): AdvisorResult {
     for (const k of Object.keys(a.changes)) if (!paramAvailable(k, inp.fwCode)) { delete a.changes[k]; delete a.from[k]; }
     if (a.kind !== 'tune') { a.selected = true; continue; }
     if (mech) { a.deferred = 'mechanics-first'; continue; }
+    if (a.caution) { a.deferred = 'caution'; continue; }
     if (Object.keys(a.changes).some((k) => used.has(k))) { a.deferred = 'same-param'; continue; }
     if (n >= A.maxChanges) { a.deferred = 'max-changes'; continue; }
     if (a.safety && nSafety >= A.maxSafetyChanges) { a.deferred = 'one-risky'; continue; }

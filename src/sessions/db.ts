@@ -2,6 +2,7 @@
 // (приватный режим) или в тестах. Экспорт/импорт проекта — один JSON-файл.
 
 import type { SessionSnapshot } from './snapshot';
+import type { Incident } from '../incidents/incidents';
 
 export interface Project {
   id: string;
@@ -10,6 +11,18 @@ export interface Project {
   craftKey: string;
   createdAt: string;
   notes: string;
+  /** профиль борта: что знаем о нём (правила читают dSensitive и disabledRules) */
+  profile?: BoardProfile;
+}
+
+export interface BoardProfile {
+  props?: string;
+  kv?: string;
+  weight?: string;
+  frame?: string;
+  notes?: string;
+  dSensitive?: boolean;
+  disabledRules?: string[];
 }
 
 export interface SessionRecord {
@@ -20,16 +33,18 @@ export interface SessionRecord {
   snap: SessionSnapshot;
 }
 
+export type StoreName = 'projects' | 'sessions' | 'incidents';
+
 export interface Backend {
-  all<T>(store: 'projects' | 'sessions'): Promise<T[]>;
-  put<T extends { id: string }>(store: 'projects' | 'sessions', v: T): Promise<void>;
-  del(store: 'projects' | 'sessions', id: string): Promise<void>;
+  all<T>(store: StoreName): Promise<T[]>;
+  put<T extends { id: string }>(store: StoreName, v: T): Promise<void>;
+  del(store: StoreName, id: string): Promise<void>;
 }
 
 export function memoryBackend(): Backend {
-  const m = { projects: new Map<string, unknown>(), sessions: new Map<string, unknown>() };
+  const m = { projects: new Map<string, unknown>(), sessions: new Map<string, unknown>(), incidents: new Map<string, unknown>() };
   return {
-    async all<T>(s: 'projects' | 'sessions') { return [...m[s].values()].map((v) => structuredClone(v)) as T[]; },
+    async all<T>(s: StoreName) { return [...m[s].values()].map((v) => structuredClone(v)) as T[]; },
     async put(s, v) { m[s].set(v.id, structuredClone(v)); },
     async del(s, id) { m[s].delete(id); },
   };
@@ -37,11 +52,11 @@ export function memoryBackend(): Backend {
 
 export function idbBackend(name = 'blackbox-studio'): Promise<Backend> {
   return new Promise((res, rej) => {
-    const rq = indexedDB.open(name, 1);
+    // версия 2 — добавлен журнал инцидентов
+    const rq = indexedDB.open(name, 2);
     rq.onupgradeneeded = () => {
       const db = rq.result;
-      if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' });
-      if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
+      for (const st of ['projects', 'sessions', 'incidents']) if (!db.objectStoreNames.contains(st)) db.createObjectStore(st, { keyPath: 'id' });
     };
     rq.onerror = () => rej(rq.error);
     rq.onsuccess = () => {
@@ -88,6 +103,7 @@ export class SessionStore {
 
   async deleteProject(id: string): Promise<void> {
     for (const s of await this.sessions(id)) await this.b.del('sessions', s.id);
+    for (const i of await this.incidents(id)) await this.b.del('incidents', i.id);
     await this.b.del('projects', id);
   }
 
@@ -106,10 +122,23 @@ export class SessionStore {
     return (await this.sessions()).find((r) => r.snap.source.fileName === s.fileName && r.snap.source.logIndex === s.logIndex && r.snap.source.datetime === s.datetime) ?? null;
   }
 
+  async incidents(projectId?: string): Promise<Incident[]> {
+    return (await this.b.all<Incident>('incidents')).filter((i) => !projectId || i.projectId === projectId).sort((x, y) => x.id.localeCompare(y.id));
+  }
+
+  /** сквозная нумерация INC-0001… по всей базе */
+  async nextIncidentId(): Promise<string> {
+    const n = (await this.incidents()).reduce((m, i) => Math.max(m, Number(i.id.replace(/\D/g, '')) || 0), 0);
+    return `INC-${String(n + 1).padStart(4, '0')}`;
+  }
+
+  async saveIncident(i: Incident): Promise<void> { await this.b.put('incidents', i); }
+  async deleteIncident(id: string): Promise<void> { await this.b.del('incidents', id); }
+
   async exportProject(id: string): Promise<string> {
     const p = (await this.projects()).find((x) => x.id === id);
     if (!p) throw new Error('Нет такого проекта');
-    return JSON.stringify({ format: 'blackbox-studio-project', v: 1, exportedAt: new Date().toISOString(), project: p, sessions: await this.sessions(id) });
+    return JSON.stringify({ format: 'blackbox-studio-project', v: 1, exportedAt: new Date().toISOString(), project: p, sessions: await this.sessions(id), incidents: await this.incidents(id) });
   }
 
   /** импорт: проект с тем же id дополняется, сессии с существующими id пропускаются */
@@ -125,6 +154,8 @@ export class SessionStore {
       await this.b.put('sessions', { ...s, projectId: proj.id });
       added++;
     }
+    const haveInc = new Set((await this.incidents()).map((i) => i.id));
+    for (const i of (d.incidents ?? []) as Incident[]) if (!haveInc.has(i.id)) await this.b.put('incidents', { ...i, projectId: proj.id });
     return { project: proj, added, skipped };
   }
 }

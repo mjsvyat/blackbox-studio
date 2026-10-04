@@ -47,6 +47,7 @@ export function tuningView(): HTMLElement {
         sec(T.adv.risk, t.risk),
         sec(T.adv.verify, t.verify),
       ] : null,
+      a.caution ? h('div', { class: 'panel warn', style: 'margin:6px 0 0' }, T.inc.caution(a.caution.worse, a.caution.n, a.caution.incidents.join(', '))) : null,
       a.safety ? h('div', { class: 'panel bad', style: 'margin:6px 0 0' }, h('b', null, T.adv.safety)) : null,
       h('div', { class: 'row', style: 'margin-top:6px' },
         h('button', { class: 'btn small', onclick: () => set({ tab: a.tab }) }, T.adv.open),

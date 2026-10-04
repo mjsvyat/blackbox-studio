@@ -24,6 +24,9 @@ export interface SnapshotSource {
   board: string;
   craft: string;
   fs: number;
+  /** где лог лежит в файле (для папки случая: вырезать байты из того же файла) */
+  byteStart?: number;
+  byteEnd?: number;
 }
 
 export interface SnapAxisNoise {
