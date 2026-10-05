@@ -26,6 +26,12 @@ export interface Project {
 }
 
 export interface BoardProfile {
+  /** класс борта (E2.2) — от него зависят пороги */
+  cls?: string;
+  cells?: number;
+  kvRating?: number;
+  weightG?: number;
+  /** до E2.2 — свободный текст; читается для переноса в cls/kvRating/weightG */
   props?: string;
   kv?: string;
   weight?: string;

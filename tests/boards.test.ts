@@ -98,6 +98,21 @@ describe('ключ борта', () => {
   });
 });
 
+describe('лог без UID и борт, известный по UID', () => {
+  it('одинаковая плата — ещё не тот же полётник: спрашиваем', async () => {
+    const st = new SessionStore(memoryBackend());
+    const a = await save(st, snap(UID_A, '', '2026-09-06T00:00:00'), () => ({ kind: 'new', name: 'Новый' }));
+    const b = await save(st, snap(null, '', '2026-06-21T00:00:00'), (r) => {
+      expect(r).toBe('no-uid');
+      return { kind: 'new', name: 'Старый квадрик' };
+    });
+    expect(b.projectId).not.toBe(a.projectId);
+    // следующий лог без UID той же платы — к борту без UID, без вопросов
+    const c = await save(st, snap(null, '', '2026-06-22T00:00:00'), () => { throw new Error('не должен спрашивать'); });
+    expect(c.projectId).toBe(b.projectId);
+  });
+});
+
 describe('миграция до E2.1', () => {
   // экспорт старого формата: борт по плате, под ним два полётника и лог 4.5 без UID
   const oldExport = (): string => {

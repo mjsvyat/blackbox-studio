@@ -2,6 +2,7 @@
 // Его вызывает воркер; его же вызывают тесты и регрессионные случаи (tests/cases): что
 // видит пользователь, то и проверяется.
 
+import { activeClass, classInfo } from '../config/classes';
 import { AdvisorResult, BoardKnowledge, advisorInputFrom, runAdvisor } from '../advisor/advisor';
 import { col } from '../decoder/decoder';
 import { FilterBaseline, FilterEval, buildBaseline, evaluate } from '../filters/evaluate';
@@ -69,6 +70,7 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
   const inp = advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header));
   if (board) inp.board = board;
   const res = runAdvisor(inp, override);
+  res.cls = classInfo(activeClass());
   // прогноз PID по модели оси для советов, меняющих PID или фильтры
   for (const adv of res.advice) {
     if (adv.kind !== 'tune' || !Object.keys(adv.changes).length) continue;
@@ -166,6 +168,7 @@ export function snapshotLog(a: Analysis, adv: AdvisorResult, src: { fileName: st
     source: {
       fileName: src.fileName, logIndex: src.logIndex, byteStart: src.byteStart, byteEnd: src.byteEnd, datetime: H['Log start datetime'] || '', durationS: c.tSec[c.n - 1],
       firmware: c.fw.raw, fwCode: c.fw.code, board: H['Board information'] || '', craft: H['Craft name'] || '', fs: c.fs,
+      boardClass: activeClass(),
     },
     header: H, cards: a.cards, noise: a.nz, maskSeconds: a.fm.seconds, thrPct: c.thrPct,
     setpoint: [0, 1, 2].map((ax) => col(c.log, `setpoint[${ax}]`)),

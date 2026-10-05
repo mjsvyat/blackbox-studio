@@ -2,7 +2,7 @@ import './ui/styles.css';
 import { T } from './i18n/ru';
 import { clear, fmtTime, h } from './ui/dom';
 import { helpBtn, openGlossary } from './ui/help';
-import { AppState, exportReport, openFile, openLog, set, state, subscribe } from './ui/store';
+import { AppState, exportReport, loadSessions, openFile, openLog, set, state, subscribe } from './ui/store';
 import { fileView } from './ui/views/file';
 import { flightView, motorsView } from './ui/views/flight';
 import { noiseView } from './ui/views/noise';
@@ -13,7 +13,9 @@ import { pidView } from './ui/views/pid';
 import { tuningView } from './ui/views/tuning';
 import { sessionsView } from './ui/views/sessions';
 import { fcView } from './ui/views/fc';
-import { campaignView } from './ui/views/campaign';
+import { campaignView, selectBoard } from './ui/views/campaign';
+import { openCampaign } from './campaigns/campaign';
+import { boardFor } from './sessions/boards';
 
 const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan?: string[] }[] = [
   { id: 'file', title: T.tabs.file, needsLog: false },
@@ -71,11 +73,37 @@ function renderTopbar(): void {
     h('span', { class: 'file-name' }, state.fileName ?? T.noFile),
     sel ?? "",
     h('span', { class: 'spacer' }),
+    boardSwitcher(),
     h('button', { class: `btn small ${state.fc.phase === 'connected' ? 'primary' : ''}`, onclick: () => set({ tab: 'fc' }) }, T.fc.open),
     state.info ? h('button', { class: 'btn small', onclick: () => exportReport() }, T.rep.button) : '',
     h('button', { class: 'btn small', onclick: openGlossary }, T.help.glossary),
     h('button', { class: 'btn small', onclick: toggleTheme }, document.documentElement.dataset.theme === 'dark' ? T.themeLight : T.themeDark),
   );
+}
+
+/** борта: последний полёт, светофор последней сессии, открытая кампания; клик — в кампанию борта */
+function boardSwitcher(): HTMLElement {
+  const ps = state.projects.filter((p) => !p.fcMovedTo);
+  const cur = state.info ? boardFor(state.projects, state.info.header) : null;
+  const menu = h('details', { class: 'board-menu' }, h('summary', { class: 'btn small' }, `${T.boards.menu}${cur ? `: ${cur.name}` : ''} ▾`));
+  const list = h('div', { class: 'board-list' });
+  if (!ps.length) list.append(h('div', { class: 'muted small' }, T.boards.noBoards));
+  for (const p of ps) {
+    const ss = state.sessions.filter((s) => s.projectId === p.id);
+    const last = ss.at(-1);
+    const oc = openCampaign(state.campaigns, p.id);
+    list.append(h('div', { class: `board-item ${cur?.id === p.id ? 'active' : ''}`, onclick: () => {
+      selectBoard(p.id);
+      (menu as HTMLDetailsElement).open = false;
+      set({ tab: 'campaign', campaignId: oc?.id ?? null });
+    } },
+      h('div', null, h('b', null, p.name), cur?.id === p.id ? h('span', { class: 'badge', style: 'margin-left:6px' }, T.boards.openLog) : ''),
+      h('div', { class: 'muted small' }, last ? T.boards.last((last.snap.source.datetime || last.savedAt).slice(0, 16).replace('T', ' ')) : T.boards.never,
+        last ? h('span', { style: 'margin-left:6px' }, last.snap.cards.map((c) => h('span', { class: `dot ${c.status}`, title: c.phrase, style: 'margin-right:2px' }))) : ''),
+      oc ? h('div', { class: 'small' }, T.boards.camp(oc.title || T.camp.goals[oc.goal])) : ''));
+  }
+  menu.append(list);
+  return menu;
 }
 
 function renderTabs(): void {
@@ -170,7 +198,7 @@ function renderProgress(): void {
   progressLabel.textContent = `${p.stage || T.loading} · ${Math.round(p.fraction * 100)} %`;
 }
 
-const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor', 'fc', 'boardAsk', 'campaigns', 'campaignId', 'openSnap', 'videoTick'];
+const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor', 'fc', 'boardAsk', 'campaigns', 'campaignId', 'openSnap', 'videoTick', 'transferFor'];
 subscribe((_s, changed) => {
   if (changed.has('progress')) renderProgress();
   if (RERENDER.some((k) => changed.has(k))) {
@@ -182,6 +210,8 @@ subscribe((_s, changed) => {
 });
 
 render();
+// борта, сессии и кампании — сразу (переключатель бортов в шапке)
+void loadSessions();
 
 // Только dev-сервер: эмулятор полётника для проверки вкладки «Полётник» без железа
 // (`await __bbFakeFc({ usedSize: … })` в консоли). В сборку dist не попадает.

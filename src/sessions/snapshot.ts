@@ -13,8 +13,9 @@ import { gainsFromHeader, gainsToCli, simplifiedFromHeader, simplifiedToCli } fr
 import { profileToCli, ratesFromHeader } from '../rates/rates';
 import type { ManeuverCount } from '../analysis/maneuvers';
 
-// 2 — добавлены манёвры (flight.maneuvers, A2); снимки v1 читаются, манёвров у них нет
-export const SNAPSHOT_VERSION = 2;
+// 2 — добавлены манёвры (flight.maneuvers, A2); 3 — класс борта (source.boardClass, E2.2).
+// Старые снимки читаются: манёвров нет, класс — 5" (по умолчанию)
+export const SNAPSHOT_VERSION = 3;
 
 export interface SnapshotSource {
   fileName: string;
@@ -26,6 +27,8 @@ export interface SnapshotSource {
   board: string;
   craft: string;
   fs: number;
+  /** класс борта, по порогам которого считался анализ (с версии 3) */
+  boardClass?: string;
   /** где лог лежит в файле (для папки случая: вырезать байты из того же файла) */
   byteStart?: number;
   byteEnd?: number;

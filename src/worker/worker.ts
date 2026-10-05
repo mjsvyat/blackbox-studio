@@ -2,6 +2,7 @@
 // Web Worker: декодирование, анализ, выдача рядов для графиков. Весь лог живёт
 // здесь; в UI уходят только спектры, метрики и прореженные куски рядов.
 
+import { activeClass, classInfo, setBoardClass } from '../config/classes';
 import { rateMagnitude } from '../video/sync';
 import { LogContext, buildContext } from '../analysis/context';
 import { idxAt } from '../analysis/flightMask';
@@ -57,6 +58,10 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
       post({ type: 'scanned', structure, name: m.name });
     } else if (m.type === 'open') {
       await openLog(m.logIndex);
+    } else if (m.type === 'setClass') {
+      // класс борта: пороги с переопределениями; открытый лог — пересчитать светофор и советы
+      setBoardClass(m.cls);
+      if (ctx) post({ type: 'analysis', analysis: analyze() });
     } else if (m.type === 'setRange') {
       range = m.range;
       if (ctx) post({ type: 'analysis', analysis: analyze() });
@@ -175,6 +180,7 @@ function analyze(): AnalysisPayload {
   }
   h.anomalies.sort((a, b) => a.t0 - b.t0);
   return {
+    cls: classInfo(activeClass()),
     cards,
     maskSegments: fm.segments.map((s) => [c.tSec[s.i0], c.tSec[s.i1 - 1]] as [number, number]),
     maskSeconds: fm.seconds,

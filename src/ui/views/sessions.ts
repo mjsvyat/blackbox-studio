@@ -16,7 +16,10 @@ import {
   updateSessionNotes,
 } from '../store';
 import { legacyKey } from '../../sessions/boards';
-import { fcDownloadBackup } from '../fcStore';
+import { fcDownloadBackup, fcPrepare } from '../fcStore';
+import { TRANSFER_GROUPS, TransferGroup, transferCli } from '../../sessions/transfer';
+import { classInfo } from '../../config/classes';
+import { normalizeProfile } from '../../sessions/profile';
 
 let loaded = false;
 let showDiff = false;
@@ -59,12 +62,14 @@ export function sessionsView(track: (d: () => void) => void): HTMLElement {
           helpBtn('board-key')),
         h('button', { class: 'btn small', onclick: () => { const n = prompt(T.ses.rename, p.name); if (n) renameProject(p, n); } }, T.ses.rename),
         p.uid && !p.fcMovedTo ? h('button', { class: 'btn small', onclick: () => { const n = prompt(T.board.moveQ, T.board.moveName(p.name)); if (n) moveFcToNewFrame(p.id, n); } }, T.board.moveBtn) : '',
+        state.projects.length > 1 ? h('button', { class: 'btn small', onclick: () => set({ transferFor: state.transferFor === p.id ? null : p.id }) }, T.boards.transfer) : '',
         h('button', { class: 'btn small', onclick: () => exportProject(p) }, T.ses.export),
         h('button', { class: 'btn small', onclick: () => { if (confirm(T.ses.delProjectQ)) deleteProject(p.id); } }, T.ses.del)),
       h('table', { class: 'grid small' },
         h('thead', null, h('tr', null, ...Object.values(T.ses.col).map((c) => h('th', null, c)), h('th', null, ''))),
         h('tbody', null, ss.map((r) => row(r)))),
       profilePanel(p),
+      state.transferFor === p.id ? transferPanel(p.id) : '',
       journal(p)));
   }
   if (state.sessions.length) list.append(h('div', { class: 'muted small', style: 'margin-top:6px' }, T.ses.pickHint));
@@ -79,6 +84,40 @@ export function sessionsView(track: (d: () => void) => void): HTMLElement {
   return out;
 }
 
+let transferSrc: string | null = null;
+let transferGroups = new Set<TransferGroup>(['filters']);
+
+/** перенос настроек с другого борта (E2.5): CLI от последнего лога получателя, версия и диапазоны — его */
+function transferPanel(toId: string): HTMLElement {
+  const to = state.projects.find((p) => p.id === toId)!;
+  const last = (pid: string) => state.sessions.filter((s) => s.projectId === pid).at(-1) ?? null;
+  const box = h('div', { class: 'panel', style: 'margin-top:8px' }, h('h4', { style: 'margin-top:0' }, T.boards.transferTitle(to.name), helpBtn('board-transfer')));
+  const dst = last(toId);
+  const others = state.projects.filter((p) => p.id !== toId && last(p.id));
+  if (!dst) return (box.append(h('div', { class: 'muted' }, T.boards.transferNoDst)), box);
+  if (!others.length) return (box.append(h('div', { class: 'muted' }, T.boards.transferNoSrc)), box);
+  if (!transferSrc || !others.some((p) => p.id === transferSrc)) transferSrc = others[0].id;
+  const src = last(transferSrc)!;
+  box.append(h('div', { class: 'row' },
+    T.boards.transferFrom,
+    h('select', { class: 'btn small', onchange: (e: Event) => { transferSrc = (e.target as HTMLSelectElement).value; set({ transferFor: null }); set({ transferFor: toId }); } }, others.map((p) => h('option', { value: p.id, selected: p.id === transferSrc }, p.name))),
+    TRANSFER_GROUPS.map((g) => h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: transferGroups.has(g), onchange: (e: Event) => { if ((e.target as HTMLInputElement).checked) transferGroups.add(g); else transferGroups.delete(g); set({ transferFor: null }); set({ transferFor: toId }); } }), ` ${T.boards.groups[g]}`))));
+  const tr = transferCli(src.snap, dst.snap, [...transferGroups]);
+  box.append(h('div', { class: 'muted small' }, T.boards.transferBase(when(dst.snap), dst.snap.source.firmware)));
+  box.append(h('div', { class: 'panel warn small' }, T.boards.transferWarn));
+  if (!tr.lines.length) box.append(h('div', { class: 'muted' }, T.boards.transferNone));
+  else {
+    const text = tr.lines.join('\n');
+    box.append(h('pre', { class: 'cli small' }, text),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn small', onclick: () => navigator.clipboard?.writeText(text).catch(() => undefined) }, T.filt.cliCopy),
+        h('button', { class: 'btn small', onclick: () => fcPrepare(tr.from, tr.to, 'transfer') }, T.fc.toBoard)));
+  }
+  if (tr.skipped.length) box.append(h('div', { class: 'muted small' }, T.boards.transferSkipped(tr.skipped.map((s) => s.name).join(', '))));
+  box.append(h('button', { class: 'btn small', onclick: () => set({ transferFor: null }) }, T.boards.close));
+  return box;
+}
+
 /** «это новый борт или существующий?» — выбор пилота перед сохранением сессии */
 function boardAskPanel(): HTMLElement {
   const a = state.boardAsk!;
@@ -88,6 +127,7 @@ function boardAskPanel(): HTMLElement {
     a.reason === 'craft-changed' && first ? T.board.askCraft(first.name, a.key.craft)
     : a.reason === 'legacy' ? T.board.askLegacy(cands.filter((p) => !p.uid).map((p) => `«${p.name}»`).join(', '))
     : a.reason === 'several' ? T.board.askSeveral
+    : a.reason === 'no-uid' && first ? T.board.askNoUid(first.name)
     : T.board.askNew(a.key.uid, legacyKey(a.key));
   // по умолчанию: тот же UID с другим именем — «переименовал»; старый борт без UID — «это он»; иначе — новый
   let pick: 'new' | 'existing' | 'moved' = a.reason === 'new' ? 'new' : 'existing';
@@ -149,6 +189,13 @@ function compareBlock(Ar: SessionRecord, Br: SessionRecord, track: (d: () => voi
 
   // ---------- честность ----------
   const cmp = comparability(a, b);
+  // разные борта (E2.4): только ориентир — без плана, прогноза и «лучше/хуже»
+  const cross = Ar.projectId !== Br.projectId;
+  if (cross) {
+    const pa = state.projects.find((p) => p.id === Ar.projectId), pb = state.projects.find((p) => p.id === Br.projectId);
+    const ca = classInfo(normalizeProfile(pa?.profile).cls).cls, cb = classInfo(normalizeProfile(pb?.profile).cls).cls;
+    box.append(h('div', { class: 'panel warn' }, h('b', null, T.boards.cross(pa?.name ?? '?', pb?.name ?? '?')), ca !== cb ? h('div', { class: 'small', style: 'margin-top:4px' }, T.boards.crossCls(T.cls.names[ca], T.cls.names[cb])) : null));
+  }
   box.append(h('div', { class: `panel ${cmp.status === 'green' ? '' : cmp.status === 'yellow' ? 'warn' : 'bad'}` },
     h('h3', { style: 'margin-top:0' }, h('span', { class: `dot ${cmp.status}` }), T.ses.honestTitle, helpBtn('compare-honesty')),
     h('div', null, T.ses.overlap(cmp.thrOverlap), ' · ', T.ses.stick(cmp.stickRatio.map((x) => fmt(x, 2)).join(' / ')), cmp.cellVDiff !== null ? [' · ', T.ses.volt(cmp.cellVDiff)] : null),
@@ -176,10 +223,10 @@ function compareBlock(Ar: SessionRecord, Br: SessionRecord, track: (d: () => voi
   if (pc.extra.length) planBox.append(h('h4', { style: 'margin:10px 0 2px' }, T.ses.extraTitle),
     h('div', { class: 'muted small' }, T.ses.extraNote),
     h('table', { class: 'grid small' }, h('tbody', null, pc.extra.map((x) => h('tr', null, h('td', null, h('code', null, x.key)), h('td', null, x.a !== undefined ? cliValue(x.key, x.a) : '—'), h('td', null, '→'), h('td', null, h('b', null, x.b !== undefined ? cliValue(x.key, x.b) : '—')))))));
-  box.append(planBox);
+  if (!cross) box.append(planBox);
 
   // ---------- метрики ----------
-  const rows = metricRows(a, b);
+  const rows = cross ? metricRows(a, b).map((r) => ({ ...r, verdict: 'na' as const, pred: undefined, band: undefined })) : metricRows(a, b);
   const acc = predictionAccuracy(rows);
   box.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.ses.metricsTitle, helpBtn('compare-metrics')),
     h('table', { class: 'grid' },

@@ -20,6 +20,7 @@ export function tuningView(): HTMLElement {
     return h('div', null, head, h('div', { class: 'panel muted' }, T.adv.loading));
   }
   const out = h('div', null, head, h('p', { class: 'muted' }, T.adv.intro));
+  if (R.cls && !R.cls.calibrated) out.append(h('div', { class: 'panel warn' }, T.cls.uncal(T.cls.names[R.cls.cls], T.cls.names[R.cls.like ?? ''] ?? ''), ' ', helpBtn('board-class')));
   if (!R.advice.length) out.append(h('div', { class: 'panel' }, T.adv.none));
 
   const card = (a: Advice): HTMLElement => {

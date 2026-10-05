@@ -1,5 +1,6 @@
 // Состояние приложения и связь с воркером.
 
+import { T } from '../i18n/ru';
 import type { FileStructure } from '../decoder/scan';
 import type { AdvicePayload, AnalysisPayload, FiltersPayload, FromWorker, LogInfo, PidPayload, RatesPayload, ToWorker } from '../worker/protocol';
 import type { FilterEval } from '../filters/evaluate';
@@ -19,6 +20,8 @@ import WorkerCtor from '../worker/worker.ts?worker&inline';
 import { FcUi, initialFc } from './fcState';
 import { AskReason, BoardKey, boardFor, boardKeyFromHeader, matchBoard } from '../sessions/boards';
 import { Campaign, GoalKind, SessionMark, openCampaign } from '../campaigns/campaign';
+import { DEFAULT_CLASS } from '../config/classes';
+import { normalizeProfile } from '../sessions/profile';
 
 export interface AppState {
   fileName: string | null;
@@ -70,6 +73,8 @@ export interface AppState {
   pidBusy: boolean;
   /** полётник по USB */
   fc: FcUi;
+  /** панель «перенести настройки» для борта (id получателя) */
+  transferFor: string | null;
   /** видео: счётчик перерисовки (само состояние — в ui/video.ts) */
   videoTick: number;
   /** «это новый борт или существующий?» — ждёт ответа пилота перед сохранением сессии */
@@ -125,6 +130,7 @@ export const state: AppState = {
   pidBusy: false,
   fc: initialFc(),
   videoTick: 0,
+  transferFor: null,
   boardAsk: null,
   campaigns: [],
   campaignId: null,
@@ -168,6 +174,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     }
     case 'opened':
+      queueMicrotask(() => void syncBoardClass());
       set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidSandbox: null, pidForecast: null, openSnap: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
       break;
     case 'analysis':
@@ -325,7 +332,7 @@ async function currentBoard(): Promise<BoardKnowledge | null> {
   const p = boardFor(await st.projects(), state.info.header);
   if (!p) return null;
   const ss = await st.sessions(p.id);
-  return boardKnowledge(ruleStats(ss, await st.incidents(p.id)), p.profile ?? {}, ss);
+  return { ...boardKnowledge(ruleStats(ss, await st.incidents(p.id)), p.profile ?? {}, ss), cls: normalizeProfile(p.profile).cls };
 }
 
 // --- сессии (этап 5) ---
@@ -556,6 +563,22 @@ export async function saveProfile(p: Project, profile: BoardProfile): Promise<vo
   await (await db()).saveProject({ ...p, profile });
   await loadSessions();
   set({ advice: null });
+  void syncBoardClass();
+}
+
+/** класс, который сейчас стоит в воркере (по умолчанию — 5") */
+let workerClass: string = DEFAULT_CLASS;
+
+/** класс борта открытого лога → воркер (пороги светофора и советчика); меняется — пересчёт */
+export async function syncBoardClass(): Promise<void> {
+  if (!state.info) return;
+  const p = boardFor((await (await db()).projects()), state.info.header);
+  const cls = normalizeProfile(p?.profile).cls ?? DEFAULT_CLASS;
+  if (cls === workerClass) return;
+  workerClass = cls;
+  adviceRequested = false;
+  set({ progress: { stage: T.cls.progress, fraction: 0.5 } });
+  send({ type: 'setClass', cls });
 }
 
 /** байты лога из открытого файла, если это тот же файл */

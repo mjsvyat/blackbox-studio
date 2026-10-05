@@ -8,7 +8,7 @@ import { scanFile } from '../src/decoder/scan';
 import { Campaign, checkProtocol, iterations, metricSeries, openCampaign, protocolNeeds } from '../src/campaigns/campaign';
 import { comparability, metricRows } from '../src/sessions/compare';
 import type { SessionRecord } from '../src/sessions/db';
-import type { SessionSnapshot } from '../src/sessions/snapshot';
+import { SNAPSHOT_VERSION, type SessionSnapshot } from '../src/sessions/snapshot';
 import type { ManeuverCount } from '../src/analysis/maneuvers';
 import { BIG_DUMP, SMALL_DUMP, fileReader, hasFixture, readRange } from './helpers';
 
@@ -45,7 +45,7 @@ describe.skipIf(!hasFixture(BIG_DUMP))('сопоставимость полёт�
 
   it('манёвры в снимке и протокол: фристайл без висения, лог 1 кГц', async () => {
     const s = await real(BIG_DUMP, 3);
-    expect(s.v).toBe(2);
+    expect(s.v).toBe(SNAPSHOT_VERSION);
     const m = s.flight.maneuvers!;
     expect(m.flips[0] + m.flips[1]).toBeGreaterThanOrEqual(6); // анализ рейтов видит 8 флипов/роллов
     expect(m.chops).toBeGreaterThanOrEqual(10);

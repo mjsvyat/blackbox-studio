@@ -14,6 +14,11 @@ import { createCampaign, deleteCampaign, ensureOpenSnap, loadSessions, set, setM
 let loaded = false;
 let boardSel: string | null = null;
 
+/** выбрать борт во вкладке «Кампания» (из переключателя бортов в шапке) */
+export function selectBoard(id: string): void {
+  boardSel = id;
+}
+
 const when = (dt: string): string => (dt || '').slice(0, 16).replace('T', ' ');
 
 export function campaignView(track: (d: () => void) => void): HTMLElement {

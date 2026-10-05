@@ -7,6 +7,7 @@
 // советов; шаг ≤ stepPct; ничего за пределами диапазонов своей версии прошивки.
 // При изменении логики правила — поднять его version и записать в _history раздела.
 
+import type { ClassInfo } from '../config/classes';
 import cfg from '../config/analysis.json';
 import { applySimplified, FilterParams } from '../filters/settings';
 import { clampParam, paramAvailable } from '../params/registry';
@@ -71,6 +72,8 @@ export interface AdvisorInput {
 export interface Range { mid: number; lo: number; hi: number }
 
 export interface BoardKnowledge {
+  /** класс борта (E2.2): пороги — с переопределениями класса (config/classes.ts) */
+  cls?: string;
   /** во сколько раз расширять полосу прогноза PID (калибровка по истории, ≥ 1) */
   pidBandScale?: number;
   /** правила, отключённые для этого борта */
@@ -82,6 +85,8 @@ export interface BoardKnowledge {
 }
 
 export interface AdvisorResult {
+  /** класс, по порогам которого считались советы; не откалиброван — интерфейс предупреждает */
+  cls?: ClassInfo;
   advice: Advice[];
   /** суммарные изменения выбранных советов */
   from: Record<string, number>;

@@ -27,7 +27,7 @@ export function boardKeyFromHeader(H: Record<string, string> | undefined): Board
 /** старый ключ (до E2.1): Craft name или плата */
 export const legacyKey = (k: Pick<BoardKey, 'craft' | 'board'>): string => k.craft || k.board || 'Борт';
 
-export type AskReason = 'new' | 'craft-changed' | 'legacy' | 'several';
+export type AskReason = 'new' | 'craft-changed' | 'legacy' | 'several' | 'no-uid';
 
 export type BoardMatch = { kind: 'match'; project: Project } | { kind: 'ask'; reason: AskReason; candidates: Project[] };
 
@@ -48,9 +48,12 @@ export function matchBoard(projects: Project[], k: BoardKey): BoardMatch {
     if (legacy.length) return { kind: 'ask', reason: 'legacy', candidates: [...legacy, ...act.filter((p) => !legacy.includes(p))] };
     return { kind: 'ask', reason: 'new', candidates: act };
   }
-  // прошивка без UID: по-старому, но два кандидата — спросить
+  // прошивка без UID: по-старому, но два кандидата — спросить; кандидат известен по UID —
+  // тоже спросить: одинаковая плата ещё не значит тот же полётник
   const byKey = act.filter((p) => p.craftKey === legacyKey(k));
-  if (byKey.length === 1) return { kind: 'match', project: byKey[0] };
+  const noUid = byKey.filter((p) => !p.uid);
+  if (noUid.length === 1) return { kind: 'match', project: noUid[0] };
+  if (byKey.length === 1) return { kind: 'ask', reason: 'no-uid', candidates: [...byKey, ...act.filter((p) => p !== byKey[0])] };
   if (byKey.length > 1) return { kind: 'ask', reason: 'several', candidates: byKey };
   return { kind: 'ask', reason: 'new', candidates: act };
 }
