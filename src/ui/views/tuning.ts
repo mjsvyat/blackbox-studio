@@ -2,6 +2,7 @@
 // о логе), у каждого — что увидели / почему / что поменять / что ожидаем / риск /
 // как проверить, ID и версия правила; общий CLI для выбранных в эту итерацию.
 
+import { fcPrepare } from '../fcStore';
 import type { Advice } from '../../advisor/advisor';
 import { AXIS_NAMES, T } from '../../i18n/ru';
 import { cliDiff, cliValue, paramByName } from '../../params/registry';
@@ -67,7 +68,8 @@ export function tuningView(): HTMLElement {
   const copyBtn = h('button', { class: 'btn small', onclick: async () => {
     try { await navigator.clipboard.writeText(text); copyBtn.textContent = T.filt.cliCopied; } catch { /* нет доступа к буферу */ }
   } }, T.filt.cliCopy);
-  out.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.adv.cliTitle, text ? copyBtn : null),
+  const usb = h('button', { class: 'btn small', onclick: () => fcPrepare(R.from, R.to, 'plan') }, T.fc.toBoard);
+  out.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.adv.cliTitle, text ? copyBtn : null, text ? usb : null),
     text ? h('pre', { style: 'margin:0;padding:8px;background:var(--bg3);border-radius:6px;overflow:auto' }, text) : h('div', { class: 'muted' }, T.adv.cliEmpty),
     text ? h('div', { class: 'muted small' }, T.adv.cliNote) : null));
   // песочница фильтров должна быть готова для кнопки «открыть в песочнице»

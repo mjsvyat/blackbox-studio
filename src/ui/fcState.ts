@@ -1,6 +1,6 @@
 // Состояние вкладки «Полётник» (отдельно от fcStore.ts, чтобы store.ts не импортировал действия).
 
-import type { Compat, FcInfo, FcStatus, FlashSummary } from '../fc/client';
+import type { ApplyResult, BoardSettings, Compat, FcInfo, FcStatus, FlashSummary } from '../fc/client';
 import { SerialSupport, serialSupport } from '../fc/webSerial';
 
 export interface FcUi {
@@ -13,11 +13,19 @@ export interface FcUi {
   flash: FlashSummary | null;
   /** подтверждение «пропы сняты» в этом подключении */
   propsOk: boolean;
-  busy: null | { kind: 'erase' | 'download'; done: number; total: number; t0: number };
+  busy: null | { kind: 'erase' | 'download' | 'settings' | 'apply' | 'reconnect'; done: number; total: number; t0: number };
   msg: { kind: 'ok' | 'bad' | 'warn'; text: string } | null;
   /** последнее скачанное: имя и размер (сами байты — в downloaded) */
   download: { name: string; size: number } | null;
   retries: number;
+  /** B4: настройки, прочитанные с борта (без dump — он большой) */
+  settings: Omit<BoardSettings, 'dump'> | null;
+  /** B5: что предложено применить (из советчика или песочницы): CLI-значения и откуда */
+  pending: { to: Record<string, number>; source: string } | null;
+  /** построчный ход применения */
+  applyRows: { line: string; ok: boolean; error?: string }[];
+  /** последнее применение (для отката); хранится и в сессии борта */
+  lastApply: ApplyResult | null;
 }
 
 export const initialFc = (): FcUi => ({
@@ -33,5 +41,9 @@ export const initialFc = (): FcUi => ({
   msg: null,
   download: null,
   retries: 0,
+  settings: null,
+  pending: null,
+  applyRows: [],
+  lastApply: null,
 });
 

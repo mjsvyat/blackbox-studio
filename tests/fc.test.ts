@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MSP, MspFrame, MspParser, crc8DvbS2, encodeV1, encodeV2 } from '../src/fc/msp';
-import { FcClient, FcError, READ_CMDS, WRITE_CMDS, armingDisableList, checkCompat } from '../src/fc/client';
+import { FcClient, FcError, READ_CMDS, WRITE_CMDS, armingDisableList, checkCompat, rollbackLines } from '../src/fc/client';
+import { boardNumbers, cliAllowed, effectiveValues, headerVsBoard, parseConfig, setResult } from '../src/fc/cli';
 import { FakeFc } from '../src/fc/emulator';
 import { scanFile } from '../src/decoder/scan';
 import { SMALL_DUMP, hasFixture } from './helpers';
@@ -151,5 +152,102 @@ describe('безопасность', () => {
     const c = new FcClient(fc);
     for (const code of Object.values(MOTOR_OR_DANGEROUS)) await expect(c.request(code)).rejects.toMatchObject({ code: 'forbidden' });
     expect(fc.received).toEqual([]);
+  });
+});
+
+describe('CLI: настройки с борта и применение (B4–B5)', () => {
+  it('разбор dump all: секции профилей, активный профиль, перечисления — числами', () => {
+    const t = '# master\r\nset gyro_lpf2_static_hz = 500\r\n# profile 0\r\nprofile 0\r\nset d_roll = 30\r\n# profile 1\r\nprofile 1\r\nset d_roll = 44\r\n# restore original profile selection\r\nprofile 1\r\nrateprofile 0\r\nset rates_type = ACTUAL\r\n';
+    const v = effectiveValues(parseConfig(t), 1, 0);
+    expect(v).toMatchObject({ gyro_lpf2_static_hz: '500', d_roll: '44', rates_type: 'ACTUAL' });
+    const n = boardNumbers(v);
+    expect(n.d_roll).toBe(44);
+    expect(n.rates_type).toBe(3);
+    expect(headerVsBoard({ d_roll: 40, gyro_lpf2_static_hz: 500 }, n)).toEqual([{ key: 'd_roll', log: 40, board: 44 }]);
+    expect(setResult('###ERROR IN set: INVALID VALUE###\r\nAllowed range: 0 - 250\r\n', 'd_roll')).toEqual({ ok: false, error: '###ERROR IN set: INVALID VALUE### Allowed range: 0 - 250' });
+  });
+
+  it('прочитать настройки 2026.6.1: diff all + dump all, выход без перезагрузки (запрет арма CLI остаётся)', async () => {
+    const fc = new FakeFc({ cli: { d_roll: '44' } });
+    const c = new FcClient(fc);
+    const info = await c.info();
+    const s = await c.readSettings(info);
+    expect(s.rebooted).toBe(false);
+    expect(s.values.d_roll).toBe('44');
+    expect(s.diffAll).toContain('set d_roll = 44');
+    expect(s.diffAll).not.toContain('set p_roll'); // дефолт в diff не попадает
+    expect(fc.cliReceived).toEqual(['diff all', 'dump all', 'exit noreboot']);
+    const st = await c.status(); // MSP снова работает
+    expect(armingDisableList(st.armingDisableFlags, st.armingDisableCount)).toContain('CLI');
+  });
+
+  it('4.5.2 (нет exit noreboot): после чтения полётник перезагружается', async () => {
+    const fc = new FakeFc({ api: [1, 46], fcVersion: [4, 5, 2] });
+    const c = new FcClient(fc);
+    const s = await c.readSettings(await c.info());
+    expect(s.rebooted).toBe(true);
+    expect(fc.cliReceived.at(-1)).toBe('exit');
+  });
+
+  it('применить: бэкап «до», прежние значения, построчная проверка, save; откат возвращает как было', async () => {
+    const fc = new FakeFc();
+    const c = new FcClient(fc);
+    const info = await c.info();
+    const rows: boolean[] = [];
+    const r = await c.applySets(info, ['set d_roll = 33', 'set dterm_lpf1_static_hz = 70', 'save'], (_, x) => rows.push(x.ok));
+    expect(r.ok).toBe(true);
+    expect(rows).toEqual([true, true]);
+    expect(r.before).toEqual({ d_roll: '30', dterm_lpf1_static_hz: '75' });
+    expect(r.diffAll).toContain('# master');
+    expect(fc.saved).toMatchObject({ d_roll: '33', dterm_lpf1_static_hz: '70' });
+    expect(fc.cliReceived).toEqual(['diff all', 'get d_roll', 'get dterm_lpf1_static_hz', 'set d_roll = 33', 'set dterm_lpf1_static_hz = 70', 'save']);
+    expect(fc.rebooted).toBe(true);
+    // полётник перезагрузился — подключаемся заново и откатываем
+    const fc2 = new FakeFc({ cli: fc.saved });
+    const c2 = new FcClient(fc2);
+    const back = await c2.applySets(await c2.info(), rollbackLines(r));
+    expect(back.ok).toBe(true);
+    expect(fc2.saved).toMatchObject({ d_roll: '30', dterm_lpf1_static_hz: '75' });
+  });
+
+  it('ошибка в строке — стоп, без save: перезагрузка отбрасывает уже поставленное', async () => {
+    const fc = new FakeFc({ cliReject: ['dterm_lpf1_static_hz'] });
+    const c = new FcClient(fc);
+    const r = await c.applySets(await c.info(), ['set d_roll = 33', 'set dterm_lpf1_static_hz = 70', 'set p_roll = 50']);
+    expect(r.ok).toBe(false);
+    expect(r.results.map((x) => x.ok)).toEqual([true, false]);
+    expect(r.error).toMatch(/INVALID VALUE/);
+    expect(fc.cliReceived).not.toContain('save');
+    expect(fc.cliReceived).not.toContain('set p_roll = 50');
+    expect(fc.cliReceived.at(-1)).toBe('exit');
+    expect(fc.saved.d_roll).toBe('30');
+  });
+
+  it('неизвестный параметр — ничего не меняется', async () => {
+    const fc = new FakeFc();
+    const c = new FcClient(fc);
+    const r = await c.applySets(await c.info(), ['set no_such_param = 1']);
+    expect(r.ok).toBe(false);
+    expect(fc.cliReceived.filter((l) => l.startsWith('set'))).toEqual([]);
+  });
+
+  it('заармлен — в CLI не входим вообще', async () => {
+    const fc = new FakeFc({ armed: true });
+    const c = new FcClient(fc);
+    const info = await c.info();
+    await expect(c.applySets(info, ['set d_roll = 33'])).rejects.toMatchObject({ code: 'armed' });
+    await expect(c.readSettings(info)).rejects.toMatchObject({ code: 'armed' });
+    expect(fc.cliMode).toBe(false);
+    expect(fc.cliReceived).toEqual([]);
+  });
+
+  it('белый список CLI: моторы, загрузчик, defaults, склейки — нельзя', async () => {
+    for (const l of ['motor 0 1500', 'dshotprog 0 1', 'bl', 'dfu', 'defaults', 'defaults nosave', 'set d_roll = 30; save', 'set d_roll=30', 'resource MOTOR 1 A08', 'flash_erase', 'mixer QUADX', 'set craft_name = a b'])
+      expect(cliAllowed(l), l).toBe(false);
+    for (const l of ['set d_roll = 30', 'set rates_type = ACTUAL', 'get d_roll', 'diff all', 'dump all', 'save', 'exit', 'exit noreboot']) expect(cliAllowed(l), l).toBe(true);
+    const fc = new FakeFc();
+    const c = new FcClient(fc);
+    await expect(c.applySets(await c.info(), ['motor 0 1500'])).rejects.toMatchObject({ code: 'forbidden' });
+    expect(fc.cliMode).toBe(false);
   });
 });

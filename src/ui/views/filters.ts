@@ -1,6 +1,7 @@
 // Вкладка «Фильтры»: самопроверка модели, текущая цепочка, песочница (Simplified +
 // все параметры), «что изменится», CLI, спектры, АЧХ, задержка, дорожки дин. фильтров.
 
+import { fcPrepare } from '../fcStore';
 import type { FilterEval } from '../../filters/evaluate';
 import { FilterParams, applySimplified, cliDiff, simplifiedConsistent } from '../../filters/settings';
 import { AXIS_NAMES, T } from '../../i18n/ru';
@@ -165,7 +166,8 @@ export function filtersView(track: (d: () => void) => void): HTMLElement {
     const simHint = changed && sc.gyro && sc.dterm && (nb.simplified_gyro_filter_multiplier !== F.params.simplified_gyro_filter_multiplier || nb.simplified_dterm_filter_multiplier !== F.params.simplified_dterm_filter_multiplier)
       ? h('div', { class: 'muted small' }, T.filt.cliSimplifiedHint, ` гиро ${nb.simplified_gyro_filter_multiplier}, D-term ${nb.simplified_dterm_filter_multiplier}.`)
       : null;
-    const cliBox = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.filt.cliTitle, cliText ? copyBtn : null),
+    const usb = h('button', { class: 'btn small', onclick: () => fcPrepare(F.params, { ...nb, ...extra }, 'filters') }, T.fc.toBoard);
+    const cliBox = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.filt.cliTitle, cliText ? copyBtn : null, cliText ? usb : null),
       cliText ? h('pre', { style: 'margin:0;padding:8px;background:var(--bg3);border-radius:6px;overflow:auto' }, cliText) : h('div', { class: 'muted' }, T.filt.cliEmpty),
       simHint);
 

@@ -41,6 +41,21 @@ export interface SessionRecord {
   savedAt: string;
   notes: string;
   snap: SessionSnapshot;
+  /** записи в полётник по USB после этого полёта: бэкап «до», что применено, результат (B5) */
+  fcLog?: FcLogEntry[];
+}
+
+export interface FcLogEntry {
+  at: string;
+  kind: 'apply' | 'rollback';
+  source: string;
+  ok: boolean;
+  lines: string[];
+  /** `diff all` до записи — им можно восстановить борт в конфигураторе */
+  diffAll: string;
+  /** прежние значения изменённых параметров (откат) */
+  before: Record<string, string>;
+  error?: string;
 }
 
 export type StoreName = 'projects' | 'sessions' | 'incidents' | 'campaigns';
@@ -158,6 +173,18 @@ export class SessionStore {
   }
 
   async updateSession(r: SessionRecord): Promise<void> { await this.b.put('sessions', r); }
+
+  /** запись в полётник — в журнал последней сессии борта (по UID полётника); нет сессий — null */
+  async logFcWrite(uid: string, e: FcLogEntry): Promise<SessionRecord | null> {
+    const ps = (await this.projects()).filter((p) => p.uid === uid && !p.fcMovedTo);
+    if (!ps.length) return null;
+    const ss = (await this.sessions()).filter((s) => ps.some((p) => p.id === s.projectId));
+    const last = ss.at(-1);
+    if (!last) return null;
+    const r = { ...last, fcLog: [...(last.fcLog ?? []), e] };
+    await this.b.put('sessions', r);
+    return r;
+  }
   async deleteSession(id: string): Promise<void> {
     await this.b.del('sessions', id);
     // из кампаний — тоже

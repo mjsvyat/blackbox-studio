@@ -16,6 +16,7 @@ import {
   updateSessionNotes,
 } from '../store';
 import { legacyKey } from '../../sessions/boards';
+import { fcDownloadBackup } from '../fcStore';
 
 let loaded = false;
 let showDiff = false;
@@ -136,6 +137,7 @@ function row(r: SessionRecord): HTMLElement {
       h('button', { class: 'btn small', title: T.inc.report, onclick: () => set({ incidentForm: r.id }) }, '⚠'),
       h('button', { class: 'btn small', title: T.rep.button, onclick: () => exportReport(r.snap) }, '📄'),
       h('button', { class: 'btn small', title: T.inc.rollbackTitle, onclick: () => set({ rollbackFor: state.rollbackFor === r.id ? null : r.id }) }, '↩'),
+      r.fcLog?.length ? h('button', { class: 'btn small', title: T.fc.sessionLog(r.fcLog.map((e) => `${e.at.slice(0, 16).replace('T', ' ')} ${e.kind} ${e.ok ? '✓' : '✗'}: ${e.lines.join('; ')}`).join('\n')), onclick: () => { const e = r.fcLog!.at(-1)!; fcDownloadBackup(e.diffAll, `diff_all_before_${e.at.slice(0, 19).replace(/[:T]/g, '-')}.txt`); } }, '💾') : '',
       h('button', { class: 'btn small', onclick: () => { if (confirm(T.ses.delSessionQ)) deleteSession(r.id); } }, '×')));
 }
 

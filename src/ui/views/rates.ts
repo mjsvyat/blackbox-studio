@@ -1,6 +1,7 @@
 // Вкладка «Рейты»: самопроверка формулы, песочница (все rates_type), кривые с
 // гистограммой стиков, использование стиков, манёвры «было → стало бы», CLI.
 
+import { fcPrepare } from '../fcStore';
 import cfg from '../../config/analysis.json';
 import { AXIS_NAMES, T } from '../../i18n/ru';
 import { cliDiff } from '../../params/registry';
@@ -252,7 +253,8 @@ export function ratesView(track: (d: () => void) => void): HTMLElement {
     const copyBtn = h('button', { class: 'btn small', onclick: async () => {
       try { await navigator.clipboard.writeText(text); copyBtn.textContent = T.filt.cliCopied; } catch { /* нет доступа к буферу */ }
     } }, T.filt.cliCopy);
-    cliBox.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.rates.cliTitle, text ? copyBtn : null),
+    const usb = h('button', { class: 'btn small', onclick: () => fcPrepare(profileToCli(base), profileToCli(p), 'rates') }, T.fc.toBoard);
+    cliBox.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.rates.cliTitle, text ? copyBtn : null, text ? usb : null),
       text ? h('pre', { style: 'margin:0;padding:8px;background:var(--bg3);border-radius:6px;overflow:auto' }, text) : h('div', { class: 'muted' }, T.rates.cliEmpty),
       p.type !== base.type ? h('div', { class: 'muted small' }, T.rates.cliTypeNote) : null,
       cli.skipped.length ? h('div', { class: 'muted small' }, cli.skipped.map((s) => `${s.name}: ${s.why}`).join('; ')) : null));

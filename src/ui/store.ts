@@ -6,7 +6,7 @@ import type { FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
 import type { RatesEval } from '../rates/analyze';
 import type { SessionSnapshot } from '../sessions/snapshot';
-import { BoardProfile, Project, SessionRecord, SessionStore, idbBackend, memoryBackend, newId } from '../sessions/db';
+import { BoardProfile, FcLogEntry, Project, SessionRecord, SessionStore, idbBackend, memoryBackend, newId } from '../sessions/db';
 import type { BoardKnowledge } from '../advisor/advisor';
 import { Incident, autoAnalyze, boardKnowledge, lastGood, ruleStats } from '../incidents/incidents';
 import { buildCaseFiles, caseFolderName } from '../incidents/caseExport';
@@ -350,6 +350,13 @@ function db(): Promise<SessionStore> {
 export async function loadSessions(): Promise<void> {
   const st = await db();
   set({ projects: await st.projects(), sessions: await st.sessions(), incidents: await st.incidents(), campaigns: await st.campaigns() });
+}
+
+/** запись в полётник — в журнал последней сессии борта; false — сессий борта нет */
+export async function recordFcWrite(uid: string, e: FcLogEntry): Promise<boolean> {
+  const r = await (await db()).logFcWrite(uid, e);
+  await loadSessions();
+  return !!r;
 }
 
 // --- кампании (A1–A2) ---

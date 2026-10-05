@@ -6,6 +6,7 @@
 
 import type { SerialLink } from './client';
 import { MSP, MspFrame, MspParser, Reader, Writer, encodeV1, encodeV2 } from './msp';
+import { paramByName } from '../params/registry';
 
 export interface FakeFcOptions {
   variant?: string;
@@ -34,10 +35,24 @@ export interface FakeFcOptions {
   disconnectAfter?: number;
   /** задержка ответа, мс */
   delayMs?: number;
+  /** настройки для CLI (значения как в `dump all`); по умолчанию — небольшой набор */
+  cli?: Record<string, string>;
+  /** параметры, на которые `set` отвечает INVALID VALUE (имитация ошибки) */
+  cliReject?: string[];
 }
 
+/** настройки по умолчанию для эмулятора CLI (часть дефолтов BF 2026.6.1) */
+export const FAKE_DEFAULTS: Record<string, string> = {
+  craft_name: '-', gyro_lpf2_static_hz: '500', dterm_lpf1_static_hz: '75', dterm_lpf2_static_hz: '150', rpm_filter_q: '500',
+  simplified_dterm_filter_multiplier: '100', simplified_gyro_filter_multiplier: '100',
+  p_roll: '45', i_roll: '80', d_roll: '30', f_roll: '120', p_pitch: '47', i_pitch: '84', d_pitch: '34', f_pitch: '125',
+  rates_type: 'ACTUAL', roll_rc_rate: '7', roll_srate: '67', roll_expo: '0',
+};
+const PROFILE_KEY = /^(p|i|d|f)_(roll|pitch|yaw)$|^simplified_(?!.*filter)|^d_max|^d_min/;
+const RATE_KEY = /^rates_type$|_rc_rate$|_srate$|_expo$|_rate_limit$/;
+
 export class FakeFc implements SerialLink {
-  o: Required<Omit<FakeFcOptions, 'flash' | 'versionText' | 'corruptEvery' | 'dropEvery' | 'disconnectAfter'>> & FakeFcOptions;
+  o: Required<Omit<FakeFcOptions, 'flash' | 'versionText' | 'corruptEvery' | 'dropEvery' | 'disconnectAfter' | 'cli' | 'cliReject'>> & FakeFcOptions;
   flash: Uint8Array;
   usedSize: number;
   /** все полученные команды (для проверок безопасности) */
@@ -49,6 +64,16 @@ export class FakeFc implements SerialLink {
   private requests = 0;
   private erasingUntil = 0;
   closed = false;
+  // --- CLI ---
+  cliMode = false;
+  /** все строки, полученные в CLI (для проверок безопасности) */
+  cliReceived: string[] = [];
+  /** сохранённые (как в EEPROM) и рабочие настройки */
+  saved: Record<string, string>;
+  working: Record<string, string>;
+  private cliLine = '';
+  private hashTimer: ReturnType<typeof setTimeout> | null = null;
+  rebooted = false;
 
   constructor(opts: FakeFcOptions = {}) {
     this.o = {
@@ -70,13 +95,104 @@ export class FakeFc implements SerialLink {
     };
     this.flash = opts.flash ?? new Uint8Array(1 << 20).fill(0xff);
     this.usedSize = opts.usedSize ?? 0;
-    this.parser = new MspParser((f) => this.handle(f), () => {}, () => {}, 192);
+    this.saved = { ...FAKE_DEFAULTS, ...(opts.cli ?? {}) };
+    this.working = { ...this.saved };
+    this.parser = new MspParser((f) => this.handle(f), () => {}, (b) => this.nonMsp(b), 192);
+  }
+
+  private send(text: string): void {
+    const b = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i++) b[i] = text.charCodeAt(i) & 0xff;
+    setTimeout(() => {
+      if (this.closed) return;
+      for (let i = 0; i < b.length; i += 64) this.dataCb(b.subarray(i, i + 64));
+    }, this.o.delayMs);
+  }
+
+  /** байт вне кадра MSP: '#' → CLI после 100 мс тишины (msp_serial.c), но не на заармленном */
+  private nonMsp(b: number): void {
+    if (this.o.armed) return; // MSP_SKIP_NON_MSP_DATA
+    if (this.hashTimer) clearTimeout(this.hashTimer);
+    this.hashTimer = null;
+    if (b !== 0x23) return;
+    this.hashTimer = setTimeout(() => {
+      this.cliMode = true;
+      this.cliLine = '';
+      this.o.armingDisableFlags |= 1 << 13; // ARMING_DISABLED_CLI
+      this.send("\r\nEntering CLI Mode, type 'exit' to reboot, or 'help'\r\n\r\n# ");
+    }, 100);
+  }
+
+  private cliByte(b: number): void {
+    if (b === 0x0a || b === 0x0d) {
+      if (!this.cliLine) return;
+      const line = this.cliLine.trim();
+      this.cliLine = '';
+      this.cliReceived.push(line);
+      this.send('\r\n');
+      this.cliCommand(line);
+    } else if (b >= 32 && b <= 126) {
+      this.cliLine += String.fromCharCode(b);
+      this.send(String.fromCharCode(b)); // эхо в интерактивном режиме
+    }
+  }
+
+  private reboot(): void {
+    this.rebooted = true;
+    setTimeout(() => this.disconnect('полётник перезагружается'), 30);
+  }
+
+  private section(keys: string[], all: boolean): string {
+    const def = FAKE_DEFAULTS;
+    const pick = (re: ((k: string) => boolean)) => keys.filter(re).filter((k) => all || this.working[k] !== def[k]).map((k) => `set ${k} = ${this.working[k]}`).join('\r\n');
+    const master = pick((k) => !PROFILE_KEY.test(k) && !RATE_KEY.test(k));
+    const prof = pick((k) => PROFILE_KEY.test(k));
+    const rate = pick((k) => RATE_KEY.test(k));
+    return `# version\r\n# Betaflight / STM32F7X2 (S7X2) 2026.6.1\r\n\r\n# start the command batch\r\nbatch start\r\n\r\n# master\r\n${master}\r\n\r\n# profile 0\r\nprofile 0\r\n\r\n${prof}\r\n\r\n# restore original profile selection\r\nprofile 0\r\n\r\n# rateprofile 0\r\nrateprofile 0\r\n\r\n${rate}\r\n\r\n# restore original rateprofile selection\r\nrateprofile 0\r\n\r\n# end the command batch\r\nbatch end\r\n`;
+  }
+
+  private cliCommand(line: string): void {
+    const prompt = '\r\n# ';
+    let m: RegExpMatchArray | null;
+    const keys = Object.keys(this.working).sort();
+    if (line === 'diff all' || line === 'dump all') return this.send(this.section(keys, line === 'dump all') + prompt);
+    if ((m = line.match(/^get (\S+)$/))) {
+      const v = this.working[m[1]];
+      const p = paramByName.get(m[1]);
+      return this.send((v === undefined ? `###ERROR IN get: INVALID NAME: ${m[1]}###\r\n` : `${m[1]} = ${v}\r\n${p ? `Allowed range: ${p.min} - ${p.max}\r\n` : ''}Default value: ${FAKE_DEFAULTS[m[1]] ?? v}\r\n`) + prompt);
+    }
+    if ((m = line.match(/^set (\S+)\s*=\s*(.+)$/))) {
+      const [, name, val] = m;
+      if (!(name in this.working)) return this.send(`###ERROR IN set: INVALID NAME: ${name}###\r\n${prompt}`);
+      const p = paramByName.get(name);
+      const okVal = !this.o.cliReject?.includes(name) && (p?.options ? p.options.some((o) => o.toUpperCase() === val.toUpperCase()) : !p || (Number.isFinite(Number(val)) && Number(val) >= p.min && Number(val) <= p.max));
+      if (!okVal) return this.send(`###ERROR IN set: INVALID VALUE###\r\n${p ? `Allowed range: ${p.min} - ${p.max}` : ''}\r\n${prompt}`);
+      this.working[name] = p?.options ? val.toUpperCase() : val;
+      return this.send(`${name} set to ${this.working[name]}\r\n${prompt}`);
+    }
+    if (line === 'save') {
+      this.saved = { ...this.working };
+      this.send('\r\n# saving\r\n');
+      return this.reboot();
+    }
+    if (line === 'exit') {
+      this.working = { ...this.saved };
+      this.send('\r\n# leaving CLI mode, unsaved changes lost\r\n');
+      return this.reboot();
+    }
+    if (line === 'exit noreboot' && (this.o.api[0] > 1 || this.o.api[1] >= 47)) {
+      this.cliMode = false;
+      this.send('\r\n# leaving CLI mode, no reboot\r\n');
+      return;
+    }
+    this.send(`###ERROR IN input: UNKNOWN COMMAND, TRY 'HELP'###${prompt}`);
   }
 
   // --- SerialLink ---
   async write(data: Uint8Array): Promise<void> {
     if (this.closed) throw new Error('port closed');
-    this.parser.push(data);
+    if (this.cliMode) for (const b of data) this.cliByte(b);
+    else this.parser.push(data);
   }
   onData(cb: (d: Uint8Array) => void): void {
     this.dataCb = cb;

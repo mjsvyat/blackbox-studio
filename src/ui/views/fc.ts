@@ -1,9 +1,12 @@
 // Вкладка «Полётник (USB)»: сведения о борте, флешка — стереть / скачать / открыть.
 
 import { armingDisableList } from '../../fc/client';
+import { boardNumbers, headerVsBoard } from '../../fc/cli';
+import { cliDiff, cliValue } from '../../params/registry';
+import { cliFromHeader } from '../../sessions/snapshot';
 import { T } from '../../i18n/ru';
 import { fmtBytes, fmtTime, h } from '../dom';
-import { fcCancel, fcConnect, fcDisconnect, fcDownload, fcErase, fcOpenDownloaded, fcPropsOk, fcRefresh, fcSaveDownloaded, lastErase } from '../fcStore';
+import { fcApply, fcCancel, fcConnect, fcDisconnect, fcDownload, fcDownloadBackup, fcDropPending, fcErase, fcOpenDownloaded, fcPropsOk, fcReadSettings, fcRefresh, fcRollback, fcSaveDownloaded, fwCodeOf, lastErase } from '../fcStore';
 import { helpBtn } from '../help';
 import { state } from '../store';
 
@@ -31,6 +34,7 @@ export function fcView(): HTMLElement {
   }
   if (fc.msg) root.append(h('div', { class: `panel ${fc.msg.kind === 'ok' ? 'good' : fc.msg.kind}` }, fc.msg.text));
 
+  if (fc.busy?.kind === 'reconnect') root.append(h('div', { class: 'panel warn' }, T.fc.reconnecting));
   if (fc.phase !== 'connected' || !fc.info) {
     root.append(h('div', { class: 'panel' },
       h('p', null, T.fc.intro),
@@ -94,7 +98,7 @@ export function fcView(): HTMLElement {
 
   const armed = st?.armed ?? true;
   const busy = !!fc.busy;
-  if (fc.busy) {
+  if (fc.busy && (fc.busy.kind === 'erase' || fc.busy.kind === 'download')) {
     const b = fc.busy;
     const el = (Date.now() - b.t0) / 1000;
     let text: string;
@@ -126,5 +130,73 @@ export function fcView(): HTMLElement {
       h('button', { class: 'btn small', onclick: () => fcSaveDownloaded() }, T.fc.save),
       h('button', { class: 'btn small', onclick: fcOpenDownloaded }, T.fc.openAgain)));
   }
+  root.append(settingsPanel(), applyPanel(armed));
   return root;
+}
+
+const stamp = (iso: string): string => new Date(iso).toLocaleString('ru');
+
+/** B4: настройки с борта, бэкап, расхождения с заголовком открытого лога */
+function settingsPanel(): HTMLElement {
+  const fc = state.fc;
+  const info = fc.info!;
+  const s = fc.settings;
+  const box = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.fc.setTitle, helpBtn('fc-settings')), h('p', { class: 'muted small' }, T.fc.setIntro));
+  const reading = fc.busy?.kind === 'settings';
+  box.append(h('div', { class: 'row' },
+    h('button', { class: 'btn', disabled: !!fc.busy || (fc.status?.armed ?? true), onclick: () => fcReadSettings() }, reading ? T.fc.reading : T.fc.read),
+    s ? h('button', { class: 'btn small', onclick: () => fcDownloadBackup(s.diffAll, `diff_all_${(info.craftName || info.boardName || 'fc').replace(/[^\w.-]+/g, '_')}_${s.readAt.slice(0, 19).replace(/[:T]/g, '-')}.txt`) }, T.fc.backup) : '',
+    s ? h('span', { class: 'muted small' }, T.fc.readAt(stamp(s.readAt), Object.keys(s.values).length, s.pidProfile, s.rateProfile)) : ''));
+  if (s && state.info) {
+    const uid = (state.info.header['DeviceUID'] || '').toLowerCase();
+    if (uid && uid !== info.uid) box.append(h('p', { class: 'muted' }, T.fc.vsLogOther));
+    else {
+      const d = headerVsBoard(cliFromHeader(state.info.header), boardNumbers(s.values));
+      box.append(h('h4', null, T.fc.vsLog));
+      if (!d.length) box.append(h('p', { class: 'muted' }, T.fc.vsLogNone));
+      else box.append(h('p', null, T.fc.vsLogDiff(d.length)),
+        h('table', { class: 'grid small' }, h('thead', null, h('tr', null, h('th', null, T.fc.colParam), h('th', null, T.fc.colLog), h('th', null, T.fc.colBoard))),
+          h('tbody', null, d.map((x) => h('tr', null, h('td', null, h('code', null, x.key)), h('td', null, cliValue(x.key, x.log)), h('td', null, h('b', null, cliValue(x.key, x.board))))))));
+    }
+  }
+  return box;
+}
+
+/** B5: применить CLI-блок (из советчика / песочницы) с diff перед отправкой; откат */
+function applyPanel(armed: boolean): HTMLElement {
+  const fc = state.fc;
+  const info = fc.info!;
+  const box = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.fc.applyTitle, helpBtn('fc-apply')));
+  const p = fc.pending;
+  if (p) {
+    box.append(h('div', { class: 'row' }, h('b', null, T.fc.applyFrom(T.fc.src[p.source] ?? p.source)), h('button', { class: 'btn small', onclick: fcDropPending }, T.fc.dropPending)));
+    if (!fc.settings) box.append(h('p', { class: 'warn-text' }, T.fc.applyNeedRead));
+    else {
+      const board = boardNumbers(fc.settings.values);
+      const cli = cliDiff(board, p.to, fwCodeOf(info.version));
+      const lines = cli.lines.filter((l) => l !== 'save');
+      if (!lines.length) box.append(h('p', { class: 'muted' }, T.fc.applyNothing));
+      else {
+        box.append(
+          h('table', { class: 'grid small' }, h('thead', null, h('tr', null, h('th', null, T.fc.colParam), h('th', null, T.fc.colBoard), h('th', null, T.fc.colNew))),
+            h('tbody', null, cli.changed.map((c) => h('tr', null, h('td', null, h('code', null, c.name)), h('td', null, c.from !== undefined ? cliValue(c.name, c.from) : '—'), h('td', null, h('b', null, cliValue(c.name, c.to))))))),
+          h('pre', { class: 'cli small' }, cli.lines.join('\n')),
+          cli.skipped.length ? h('p', { class: 'muted small' }, T.fc.applySkipped(cli.skipped.map((x) => x.name).join(', '))) : '',
+          h('button', { class: 'btn primary', disabled: !!fc.busy || armed || !fc.propsOk, title: armed ? T.fc.eraseArmed : '', onclick: () => fcApply(lines, 'apply', p.source) }, T.fc.applyBtn));
+      }
+    }
+  }
+  if (fc.busy?.kind === 'apply') box.append(h('p', null, T.fc.applying(fc.busy.done, fc.busy.total)));
+  if (fc.applyRows.length) {
+    box.append(h('table', { class: 'grid small proto' }, h('tbody', null, fc.applyRows.map((r) => h('tr', { class: r.ok ? 'ok' : 'bad' }, h('td', null, r.ok ? '✓' : '✗'), h('td', null, h('code', null, r.line)), h('td', { class: 'muted' }, r.error ?? ''))))));
+  }
+  const la = fc.lastApply;
+  if (la) {
+    box.append(h('div', { class: 'row', style: 'margin-top:8px' },
+      h('span', { class: 'muted small' }, T.fc.lastApply(stamp(la.at), Object.keys(la.before).length)),
+      h('button', { class: 'btn small', onclick: () => fcDownloadBackup(la.diffAll, `diff_all_before_${la.at.slice(0, 19).replace(/[:T]/g, '-')}.txt`) }, T.fc.backup),
+      h('button', { class: 'btn small', disabled: !!fc.busy || armed || !fc.propsOk, onclick: fcRollback }, T.fc.rollback)));
+  }
+  if (!p && !la && !fc.applyRows.length) box.append(h('p', { class: 'muted small' }, T.fc.applyEmpty));
+  return box;
 }

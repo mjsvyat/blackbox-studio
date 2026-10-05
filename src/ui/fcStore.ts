@@ -1,17 +1,19 @@
 // Полётник по USB: состояние вкладки и действия (подключение, стирание, скачивание флешки).
 // Протокол — src/fc/. Здесь только связь с интерфейсом.
 
-import { FcClient, FcError, FcInfo, SerialLink, checkCompat } from '../fc/client';
-import { requestLink } from '../fc/webSerial';
+import { FcClient, FcError, FcInfo, SerialLink, checkCompat, rollbackLines } from '../fc/client';
+import { reopenLink, requestLink } from '../fc/webSerial';
 import { T } from '../i18n/ru';
 import { fmtBytes } from './dom';
 import type { FcUi } from './fcState';
-import { openFile, set, state } from './store';
+import { openFile, recordFcWrite, set, state } from './store';
 
 let client: FcClient | null = null;
 let downloaded: Blob | null = null;
 let abort: AbortController | null = null;
 let poll: ReturnType<typeof setInterval> | null = null;
+/** ждём перезагрузку полётника (после save / exit) — обрыв USB ожидаем, переподключаемся сами */
+let expectReboot = false;
 
 function upd(p: Partial<FcUi>): void {
   set({ fc: { ...state.fc, ...p } });
@@ -45,6 +47,12 @@ export async function fcConnect(link?: SerialLink & { info?: string }): Promise<
     if (state.fc.phase === 'idle') return;
     stopPoll();
     client = null;
+    if (expectReboot) {
+      expectReboot = false;
+      upd({ phase: 'idle', status: null });
+      void autoReconnect();
+      return;
+    }
     upd({ phase: 'idle', busy: null, status: null, msg: { kind: 'bad', text: T.fc.lost(why) } });
   });
   try {
@@ -215,4 +223,122 @@ export async function fcSaveDownloaded(): Promise<void> {
     if (e instanceof DOMException && e.name === 'AbortError') return;
     upd({ msg: { kind: 'bad', text: errText(e) } });
   }
+}
+
+// ---------------- B4–B5: настройки с борта, применение, откат ----------------
+
+/** код версии как в decoder/header (2026.6.1 → 2026006001, 4.5.2 → 4005002) */
+export function fwCodeOf(version: string): number {
+  const m = version.match(/^(\d+)\.(\d+)\.(\d+)/);
+  return m ? Number(m[1]) * 1e6 + Number(m[2]) * 1e3 + Number(m[3]) : 0;
+}
+
+/** только dev: эмулятор вместо Web Serial при переподключении */
+let reopen: () => Promise<(SerialLink & { info?: string }) | null> = reopenLink;
+export function setReopenForDev(f: typeof reopen): void {
+  reopen = f;
+}
+
+/** после перезагрузки полётника USB появляется снова через 1–3 с — подключаемся к тому же порту */
+async function autoReconnect(): Promise<void> {
+  upd({ busy: { kind: 'reconnect', done: 0, total: 0, t0: Date.now() } });
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (state.fc.phase !== 'idle') return;
+    let l: (SerialLink & { info?: string }) | null = null;
+    try {
+      l = await reopen();
+    } catch {
+      l = null;
+    }
+    if (l) {
+      const keep = { settings: state.fc.settings, lastApply: state.fc.lastApply, pending: state.fc.pending, applyRows: state.fc.applyRows, msg: state.fc.msg, propsOk: state.fc.propsOk };
+      upd({ busy: null });
+      await fcConnect(l);
+      upd({ ...keep, propsOk: keep.propsOk });
+      return;
+    }
+  }
+  upd({ busy: null, msg: { kind: 'warn', text: T.fc.reconnectFail } });
+}
+
+export async function fcReadSettings(): Promise<void> {
+  const fc = state.fc;
+  if (!client || !fc.info || fc.busy) return;
+  upd({ busy: { kind: 'settings', done: 0, total: 0, t0: Date.now() }, msg: null });
+  stopPoll();
+  try {
+    // 4.5 выходит из CLI только перезагрузкой
+    expectReboot = !(fc.info.api[1] >= 47 || fc.info.api[0] > 1);
+    const s = await client.readSettings(fc.info);
+    const { dump: _dump, ...lite } = s;
+    void _dump;
+    upd({ busy: null, settings: lite, msg: { kind: 'ok', text: s.rebooted ? T.fc.readRebooted : T.fc.readOk } });
+    if (!s.rebooted) {
+      expectReboot = false;
+      startPoll();
+      void fcRefresh();
+    }
+  } catch (e) {
+    expectReboot = false;
+    upd({ busy: null, msg: { kind: 'bad', text: errText(e) } });
+    if (client) startPoll();
+  }
+}
+
+/**
+ * Из советчика / песочницы: «на борт по USB» — показать во вкладке «Полётник». Берутся только
+ * параметры, которые меняются относительно лога (from): остальное на борту не трогаем, даже если
+ * после полёта его уже поменяли.
+ */
+export function fcPrepare(from: Record<string, number>, to: Record<string, number>, source: string): void {
+  const ch: Record<string, number> = {};
+  for (const [k, v] of Object.entries(to)) if (from[k] !== v) ch[k] = v;
+  upd({ pending: { to: ch, source }, applyRows: [] });
+  set({ tab: 'fc' });
+}
+
+export function fcDropPending(): void {
+  upd({ pending: null, applyRows: [] });
+}
+
+export function fcDownloadBackup(text: string, name: string): void {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text.replace(/\r\n/g, '\n')], { type: 'text/plain' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+
+/** записать строки set … на борт (только по кнопке; подтверждение — здесь) */
+export async function fcApply(lines: string[], kind: 'apply' | 'rollback', source: string): Promise<void> {
+  const fc = state.fc;
+  if (!client || !fc.info || fc.busy || !fc.propsOk || !lines.length) return;
+  if (!confirm(kind === 'apply' ? T.fc.applyQ(lines.join('\n')) : T.fc.rollbackQ(lines.join('\n')))) return;
+  stopPoll();
+  upd({ busy: { kind: 'apply', done: 0, total: lines.length, t0: Date.now() }, applyRows: [], msg: null });
+  const rows: { line: string; ok: boolean; error?: string }[] = [];
+  try {
+    expectReboot = true;
+    const r = await client.applySets(fc.info, lines, (i, row) => {
+      rows.push(row);
+      upd({ applyRows: [...rows], busy: { kind: 'apply', done: i + 1, total: lines.length, t0: fc.busy?.t0 ?? Date.now() } });
+    });
+    const saved = await recordFcWrite(fc.info.uid, { at: r.at, kind, source, ok: r.ok, lines, diffAll: r.diffAll, before: r.before, error: r.error });
+    upd({
+      busy: null,
+      lastApply: r.ok ? r : state.fc.lastApply,
+      pending: r.ok && kind === 'apply' ? null : state.fc.pending,
+      settings: null,
+      msg: r.ok ? { kind: 'ok', text: (kind === 'apply' ? T.fc.applied : T.fc.rolledBack) + (saved ? '' : ` ${T.fc.notLogged}`) } : { kind: 'bad', text: T.fc.applyFailed(r.error ?? '') },
+    });
+  } catch (e) {
+    expectReboot = false;
+    upd({ busy: null, msg: { kind: 'bad', text: errText(e) } });
+  }
+}
+
+export function fcRollback(): void {
+  const r = state.fc.lastApply;
+  if (r) void fcApply(rollbackLines(r), 'rollback', 'rollback');
 }

@@ -1,6 +1,7 @@
 // Вкладка «PID / step»: step response по осям с полосой разброса, цифры, трекинг,
 // вклад P/I/D/F, PID и слайдеры Simplified из заголовка.
 
+import { fcPrepare } from '../fcStore';
 import cfg from '../../config/analysis.json';
 import { AXIS_NAMES, T } from '../../i18n/ru';
 import { lineChart } from '../charts/line';
@@ -224,7 +225,7 @@ function resultsInto(box: HTMLElement, track: (d: () => void) => void): void {
   const cli = cliDiff(curCli, { ...curCli, ...pidOnly }, P.fwCode);
   if (cli.lines.length) {
     const text = cli.lines.join('\n');
-    box.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.pid.cliTitle),
+    box.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.pid.cliTitle, h('button', { class: 'btn small', onclick: () => fcPrepare(curCli, { ...curCli, ...pidOnly }, 'pid') }, T.fc.toBoard)),
       h('pre', { style: 'margin:0;padding:8px;background:var(--bg3);border-radius:6px;overflow:auto' }, text),
       h('div', { class: 'muted small' }, T.adv.cliNote)));
   }

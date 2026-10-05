@@ -144,3 +144,18 @@ describe('миграция до E2.1', () => {
     expect(ps.find((p) => p.id === p2.id)!.uid).toBeUndefined();
   });
 });
+
+describe('журнал записей в полётник (B5)', () => {
+  it('бэкап «до» — в последнюю сессию борта этого полётника; нет сессий — null', async () => {
+    const st = new SessionStore(memoryBackend());
+    const e = { at: '2026-10-05T10:00:00Z', kind: 'apply' as const, source: 'plan', ok: true, lines: ['set d_roll = 33'], diffAll: '# master', before: { d_roll: '30' } };
+    expect(await st.logFcWrite(UID_A, e)).toBeNull();
+    const a = await save(st, snap(UID_A, '', '2026-09-01T00:00:00'), () => ({ kind: 'new', name: 'A' }));
+    await save(st, snap(UID_A, '', '2026-09-02T00:00:00'), () => { throw new Error('не должен спрашивать'); });
+    await save(st, snap(UID_B, '', '2026-09-03T00:00:00'), () => ({ kind: 'new', name: 'B' }));
+    const r = await st.logFcWrite(UID_A, e);
+    expect(r!.projectId).toBe(a.projectId);
+    expect(r!.snap.source.datetime).toBe('2026-09-02T00:00:00');
+    expect((await st.sessions(a.projectId)).at(-1)!.fcLog).toEqual([e]);
+  });
+});

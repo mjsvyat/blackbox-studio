@@ -36,6 +36,22 @@ export async function requestLink(): Promise<SerialLink & { info: string }> {
   return openPort(port);
 }
 
+/**
+ * Переподключиться к порту, уже разрешённому пользователем (после перезагрузки полётника USB
+ * пропадает и появляется снова). null — разрешённых портов нет или порт ещё не появился.
+ */
+export async function reopenLink(): Promise<(SerialLink & { info: string }) | null> {
+  const ports = await serial().getPorts();
+  for (const p of ports) {
+    try {
+      return await openPort(p);
+    } catch {
+      /* ещё не появился или занят */
+    }
+  }
+  return null;
+}
+
 async function openPort(port: WSerialPort): Promise<SerialLink & { info: string }> {
   // USB CDC скорость игнорирует; 115200 — как у конфигуратора
   await port.open({ baudRate: 115200, bufferSize: 65536 });

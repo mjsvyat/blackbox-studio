@@ -188,8 +188,16 @@ render();
 if (import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).__bbFakeFc = async (o: Record<string, unknown> = {}) => {
     const { FakeFc } = await import('./fc/emulator');
-    const { fcConnect } = await import('./ui/fcStore');
-    const fc = new FakeFc({ delayMs: 2, eraseMs: 3000, ...o });
+    const { fcConnect, fcPrepare, setReopenForDev } = await import('./ui/fcStore');
+    (window as unknown as Record<string, unknown>).__bbFcPrepare = fcPrepare;
+    let fc = new FakeFc({ delayMs: 2, eraseMs: 3000, ...o });
+    // «перезагрузка»: новый эмулятор с сохранёнными настройками старого
+    setReopenForDev(async () => {
+      if (!fc.closed) return null;
+      fc = new FakeFc({ delayMs: 2, eraseMs: 3000, ...o, cli: fc.saved, armingDisableFlags: 0 });
+      (window as unknown as Record<string, unknown>).__fc = fc;
+      return Object.assign(fc, { info: 'эмулятор' });
+    });
     set({ tab: 'fc' });
     await fcConnect(Object.assign(fc, { info: 'эмулятор' }));
     return fc;
