@@ -1,6 +1,8 @@
 // Журнал инцидентов в UI: форма «сообщить о проблеме», случаи борта с авторазбором,
 // откат (у серьёзных — первым), экспорт папки случая, профиль борта, статистика правил.
 
+import { CLASSES, classInfo } from '../../config/classes';
+import { normalizeProfile } from '../../sessions/profile';
 import { AXIS_NAMES, T } from '../../i18n/ru';
 import { Incident, SYMPTOMS, Symptom, autoAnalyze, isSevere, lastGood, predictionHistory, rollbackCli, ruleStats } from '../../incidents/incidents';
 import type { Project, SessionRecord } from '../../sessions/db';
@@ -88,12 +90,24 @@ function incidentCard(i: Incident): HTMLElement {
 }
 
 export function profilePanel(p: Project): HTMLElement {
-  const pr = p.profile ?? {};
-  const field = (k: 'props' | 'kv' | 'weight' | 'frame' | 'notes'): HTMLElement => {
+  // структурированный профиль (E2.2); старый текст — подсказкой
+  const pr = normalizeProfile(p.profile);
+  const lbl = (text: string, el: HTMLElement): HTMLElement => h('label', { class: 'small', style: 'display:inline-flex;gap:4px;align-items:center;margin-right:10px' }, text, el);
+  const field = (k: 'frame' | 'notes'): HTMLElement => {
     const el = h('input', { type: 'text', value: pr[k] ?? '', style: 'width:140px' }) as HTMLInputElement;
     el.addEventListener('change', () => saveProfile(p, { ...pr, [k]: el.value }));
-    return h('label', { class: 'small', style: 'display:inline-flex;gap:4px;align-items:center;margin-right:10px' }, T.inc.profile[k], el);
+    return lbl(T.inc.profile[k], el);
   };
+  const numField = (k: 'cells' | 'kvRating' | 'weightG', text: string): HTMLElement => {
+    const el = h('input', { type: 'number', value: pr[k] ?? '', style: 'width:80px', min: 0 }) as HTMLInputElement;
+    el.addEventListener('change', () => saveProfile(p, { ...pr, [k]: el.value === '' ? undefined : Number(el.value) }));
+    return lbl(text, el);
+  };
+  const ci = classInfo(pr.cls);
+  const clsSel = h('select', { class: 'btn small', onchange: (e: Event) => saveProfile(p, { ...pr, cls: (e.target as HTMLSelectElement).value || undefined }) },
+    h('option', { value: '', selected: !pr.cls }, T.cls.none),
+    CLASSES.map((c) => h('option', { value: c, selected: pr.cls === c }, T.cls.names[c])));
+  const oldText = [pr.props, pr.kv, pr.weight].filter(Boolean).join(' · ');
   const ds = h('input', { type: 'checkbox', checked: !!pr.dSensitive }) as HTMLInputElement;
   ds.addEventListener('change', () => saveProfile(p, { ...pr, dSensitive: ds.checked }));
   const dis = h('input', { type: 'text', value: (pr.disabledRules ?? []).join(', '), style: 'width:260px' }) as HTMLInputElement;
@@ -102,7 +116,9 @@ export function profilePanel(p: Project): HTMLElement {
   const stats = Object.entries(ruleStats(sessions, state.incidents.filter((i) => i.projectId === p.id)));
   const ph = predictionHistory(sessions);
   return h('details', { style: 'margin-top:6px' }, h('summary', { class: 'small' }, T.inc.profileTitle, ' ', helpBtn('board-profile')),
-    h('div', { style: 'margin:6px 0' }, field('props'), field('kv'), field('weight'), field('frame'), field('notes')),
+    h('div', { style: 'margin:6px 0' }, lbl(T.cls.title, clsSel), helpBtn('board-class'), numField('cells', T.cls.cells), numField('kvRating', T.cls.kv), numField('weightG', T.cls.weight), field('frame'), field('notes')),
+    pr.cls && !ci.calibrated ? h('div', { class: 'small warn-text' }, T.cls.uncal(T.cls.names[ci.cls], T.cls.names[ci.like ?? ''] ?? ci.like ?? '')) : null,
+    oldText ? h('div', { class: 'muted small' }, T.cls.old(oldText)) : null,
     h('label', { class: 'small', style: 'display:inline-flex;gap:4px;margin-right:12px' }, ds, T.inc.profile.dSensitive),
     h('label', { class: 'small', style: 'display:inline-flex;gap:4px;align-items:center' }, T.inc.profile.disabled, dis),
     stats.length ? h('table', { class: 'grid small', style: 'margin-top:6px' },

@@ -1,6 +1,7 @@
 // Вкладка «PID / step»: step response по осям с полосой разброса, цифры, трекинг,
 // вклад P/I/D/F, PID и слайдеры Simplified из заголовка.
 
+import { fcPrepare } from '../fcStore';
 import cfg from '../../config/analysis.json';
 import { AXIS_NAMES, T } from '../../i18n/ru';
 import { lineChart } from '../charts/line';
@@ -9,6 +10,7 @@ import { helpBtn } from '../help';
 import { ensurePid, requestPidForecast, state, subscribe } from '../store';
 import { SimplifiedPids, gainsToCli, simplifiedPids, simplifiedToCli } from '../../pid/gains';
 import { cliDiff } from '../../params/registry';
+import { freqSection } from './freq';
 
 export function pidView(track: (d: () => void) => void): HTMLElement {
   const P = state.pid;
@@ -75,6 +77,10 @@ export function pidView(track: (d: () => void) => void): HTMLElement {
       : h('table', { class: 'grid' }, h('tbody', null, Object.entries(T.pid.simNames).map(([k, label]) => h('tr', null, h('td', null, label), h('td', null, fmt((sp.s as unknown as Record<string, number>)[k] / 100, 2)))))));
   out.append(h('div', { class: 'two' }, gainsBox, simBox));
   out.append(forecastSection(track));
+  const freqBox = h('div');
+  const drawFreq = (): void => { freqBox.replaceChildren(freqSection(track, drawFreq)); };
+  drawFreq();
+  out.append(freqBox);
   return out;
 }
 
@@ -224,7 +230,7 @@ function resultsInto(box: HTMLElement, track: (d: () => void) => void): void {
   const cli = cliDiff(curCli, { ...curCli, ...pidOnly }, P.fwCode);
   if (cli.lines.length) {
     const text = cli.lines.join('\n');
-    box.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.pid.cliTitle),
+    box.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.pid.cliTitle, h('button', { class: 'btn small', onclick: () => fcPrepare(curCli, { ...curCli, ...pidOnly }, 'pid') }, T.fc.toBoard)),
       h('pre', { style: 'margin:0;padding:8px;background:var(--bg3);border-radius:6px;overflow:auto' }, text),
       h('div', { class: 'muted small' }, T.adv.cliNote)));
   }

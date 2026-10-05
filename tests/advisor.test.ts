@@ -93,6 +93,33 @@ describe('правила советчика', () => {
     expect(a.changes.p_roll).toBeUndefined();
   });
 
+  it('запас по фазе мал (C) → P/D не поднимаем: подъём D отложен, ослабление фильтров (меньше задержки) — можно', () => {
+    const r = runAdvisor(input({ pid: pidWith(25, 1.0), stability: [{ axis: 0, pmDeg: 24, gmDb: 8, crossHz: 45, source: 'chirp' }] }));
+    const pm = r.advice.find((x) => x.id === 'R-STAB-PM-LOW-01')!;
+    expect(pm.severity).toBe('red');
+    expect(pm.inputs).toMatchObject({ pm: 24, axis: 0, src: 'chirp' });
+    const os = r.advice.find((x) => x.id === 'R-PID-OVERSHOOT-01')!;
+    expect(os.inputs.way).toBe('d');
+    expect(os.deferred).toBe('stability');
+    expect(Object.keys(r.to).some((k) => /^d_|simplified_d_gain/.test(k))).toBe(false);
+    expect(r.advice.find((x) => x.id === 'R-FLT-GYRO-RAISE-01')!.selected).toBe(true);
+    expect(T.adv.rules['R-STAB-PM-LOW-01'].risk).toMatch(/20–30 с/);
+  });
+
+  it('запас по амплитуде мал (C) → P и I на шаг ниже, подъём D отложен', () => {
+    const r = runAdvisor(input({ pid: pidWith(25, 1.0), stability: [{ axis: 1, pmDeg: 50, gmDb: 2, crossHz: 40, source: 'chirp' }] }));
+    const gm = r.advice.find((x) => x.id === 'R-STAB-GM-LOW-01')!;
+    expect(gm.selected).toBe(true);
+    expect(gm.changes.simplified_pi_gain).toBe(90);
+    expect(r.advice.find((x) => x.id === 'R-PID-OVERSHOOT-01')!.deferred).toBe('stability');
+  });
+
+  it('запасы в норме — правила не срабатывают, D поднимается как обычно', () => {
+    const r = runAdvisor(input({ pid: pidWith(25, 1.0), stability: [{ axis: 0, pmDeg: 55, gmDb: 9, crossHz: 45, source: 'chirp' }] }));
+    expect(r.advice.some((x) => x.id.startsWith('R-STAB'))).toBe(false);
+    expect(r.advice.find((x) => x.id === 'R-PID-OVERSHOOT-01')!.selected).toBe(true);
+  });
+
   it('перерегулирование, D-term шумный → не D, а меньше P и I', () => {
     const r = runAdvisor(input({ pid: pidWith(25, 1.0) }, { dterm: [12, 9, null] }));
     const a = r.advice.find((x) => x.id === 'R-PID-OVERSHOOT-01')!;

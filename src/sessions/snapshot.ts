@@ -11,8 +11,11 @@ import { paramsFromHeader } from '../filters/settings';
 import type { PidResult } from '../pid/analyze';
 import { gainsFromHeader, gainsToCli, simplifiedFromHeader, simplifiedToCli } from '../pid/gains';
 import { profileToCli, ratesFromHeader } from '../rates/rates';
+import type { ManeuverCount } from '../analysis/maneuvers';
 
-export const SNAPSHOT_VERSION = 1;
+// 2 — добавлены манёвры (flight.maneuvers, A2); 3 — класс борта (source.boardClass, E2.2).
+// Старые снимки читаются: манёвров нет, класс — 5" (по умолчанию)
+export const SNAPSHOT_VERSION = 3;
 
 export interface SnapshotSource {
   fileName: string;
@@ -24,6 +27,8 @@ export interface SnapshotSource {
   board: string;
   craft: string;
   fs: number;
+  /** класс борта, по порогам которого считался анализ (с версии 3) */
+  boardClass?: string;
   /** где лог лежит в файле (для папки случая: вырезать байты из того же файла) */
   byteStart?: number;
   byteEnd?: number;
@@ -92,6 +97,8 @@ export interface SessionSnapshot {
     stickRms: number[];
     /** медиана напряжения на банку в полёте, В */
     cellV: number | null;
+    /** манёвры (с версии 2; в старых снимках нет) */
+    maneuvers?: ManeuverCount;
   };
   cards: { id: string; status: string; phrase: string }[];
   noise: {
@@ -193,6 +200,7 @@ export interface SnapshotInput {
   planEval: FilterEval | null;
   /** прогноз PID под план */
   planPid?: PlanSnapshot['pid'];
+  maneuvers?: ManeuverCount;
 }
 
 export function buildSnapshot(x: SnapshotInput): SessionSnapshot {
@@ -230,6 +238,7 @@ export function buildSnapshot(x: SnapshotInput): SessionSnapshot {
       thrHist: hist.map((h) => r1(cnt ? (h / cnt) * 100 : 0)),
       stickRms: sp2.map((s) => r1(cnt ? Math.sqrt(s / cnt) : 0)),
       cellV: vs.length ? r3(vs[Math.floor(vs.length / 2)]) : null,
+      maneuvers: x.maneuvers,
     },
     cards: x.cards.map((c) => ({ id: c.id, status: c.status, phrase: c.phrase })),
     noise: {

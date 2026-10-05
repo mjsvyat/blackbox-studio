@@ -15,8 +15,10 @@ export function summaryView(): HTMLElement {
     h('span', { class: 'muted' }, info.board),
     h('span', null, `${T.summary.flightTime}: `, h('b', null, fmtTime(an.maskSeconds)), ` ${T.summary.of} ${fmtTime(info.durationS)}`, helpBtn('flight-mask')),
     an.range ? h('span', { class: 'badge' }, T.flight.rangeSet(an.range.t0, an.range.t1)) : null,
+    an.cls ? h('span', { class: `badge ${an.cls.calibrated ? '' : 'yellow'}` }, T.cls.badge(T.cls.names[an.cls.cls]), helpBtn('board-class')) : null,
     ex.length ? h('span', { class: 'muted small' }, `${T.summary.excludedTitle}: ${ex.map(([k, v]) => `${T.summary.excl[k] ?? k} ${fmt(v, 1)} с`).join(', ')}`) : null,
   );
+  const uncal = an.cls && !an.cls.calibrated ? h('div', { class: 'panel warn' }, T.cls.uncal(T.cls.names[an.cls.cls], T.cls.names[an.cls.like ?? ''] ?? '')) : null;
   const lowData = an.maskSeconds < 5 ? h('div', { class: 'panel warn' }, T.summary.lowData) : null;
   const cards = h('div', { class: 'cards' }, an.cards.map((c) =>
     h('div', { class: `card ${c.status}`, onclick: () => set({ tab: c.tab }) },
@@ -29,5 +31,5 @@ export function summaryView(): HTMLElement {
         : null,
     )));
   const warn = info.warnings.length ? h('div', { class: 'panel warn' }, info.warnings.map((w) => h('div', null, w))) : null;
-  return h('div', null, h('h2', null, T.summary.title), head, lowData, warn, cards);
+  return h('div', null, h('h2', null, T.summary.title), head, uncal, lowData, warn, cards);
 }

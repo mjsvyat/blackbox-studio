@@ -141,8 +141,23 @@ export function autoAnalyze(before: SessionSnapshot, after: SessionSnapshot, inc
   return { comparability: cmp, plan, rows, worstPrediction, findings, suspects, extraChanged: plan.extra.map((x) => x.key) };
 }
 
+/** метрика, которую правило должно улучшить (для статистики «лучше»; «хуже» — ruleWorse) */
+export function ruleTarget(id: string): string | null {
+  switch (id) {
+    case 'R-FLT-DTERM-HOT-01': return 'dterm';
+    case 'R-FLT-GYRO-NOISY-01': case 'R-DYN-NOTCH-RANGE-01': return 'noiseFilt';
+    // ослабление фильтров покупает задержку — её и ждём вниз
+    case 'R-FLT-GYRO-RAISE-01': return 'delay100';
+    case 'R-FLT-DTERM-RAISE-01': return 'delayD100';
+    case 'R-PID-OVERSHOOT-01': case 'R-STAB-GM-LOW-01': return 'overshoot';
+    case 'R-PID-SLUGGISH-01': return 'stepDelay';
+    case 'R-PID-SAG-01': return 'settle';
+    default: return null;
+  }
+}
+
 /** итог применения правила между двумя полётами: стало ли хуже по его же цели */
-function ruleWorse(id: string, rows: MetricRow[]): boolean {
+export function ruleWorse(id: string, rows: MetricRow[]): boolean {
   const worse = (m: string): boolean => rows.some((r) => r.id === m && r.verdict === 'worse');
   switch (id) {
     case 'R-FLT-DTERM-HOT-01': return worse('dterm');

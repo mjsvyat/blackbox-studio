@@ -2,6 +2,8 @@
 // Его вызывает воркер; его же вызывают тесты и регрессионные случаи (tests/cases): что
 // видит пользователь, то и проверяется.
 
+import cfg from '../config/analysis.json';
+import { activeClass, classInfo } from '../config/classes';
 import { AdvisorResult, BoardKnowledge, advisorInputFrom, runAdvisor } from '../advisor/advisor';
 import { col } from '../decoder/decoder';
 import { FilterBaseline, FilterEval, buildBaseline, evaluate } from '../filters/evaluate';
@@ -9,10 +11,12 @@ import { FilterContext, FilterParams, contextFromHeader, paramsFromHeader } from
 import { PidResult, analyzePid } from '../pid/analyze';
 import { PidGains, gainsFromHeader, simplifiedFromHeader } from '../pid/gains';
 import { AxisForecast, Sysid, forecastAxis, gainsRatio, identify } from '../sysid/predict';
+import { ChirpResult, analyzeChirp, compareModels } from '../sysid/chirp';
 import { SessionSnapshot, buildSnapshot } from '../sessions/snapshot';
 import { LogContext } from './context';
 import { FlightMask, buildFlightMask } from './flightMask';
 import { HealthResult, analyzeHealth } from './health';
+import { ManeuverCount, countManeuvers } from './maneuvers';
 import { NoiseResult, analyzeNoise } from './noise';
 import { Card, LogMeta, buildSummary } from './summary';
 
@@ -23,8 +27,12 @@ export interface Analysis {
   h: HealthResult;
   filters: { params: FilterParams; fctx: FilterContext; base: FilterBaseline; sim: ReturnType<typeof buildBaseline>['sim'] } | null;
   pid: PidResult | null;
-  /** модель оси для прогноза PID (null — не построена) */
+  /** манёвры для протокола тестового полёта (A2) */
+  maneuvers: ManeuverCount;
+  /** модель оси для прогноза PID (null — не построена); по chirp, если он был (C) */
   sysid: Sysid | null;
+  /** частотные характеристики, запасы, chirp (C); null — не посчитано */
+  chirp: ChirpResult | null;
   cards: Card[];
 }
 
@@ -55,8 +63,32 @@ export function analyzeLog(c: LogContext, range: { t0: number; t1: number } | nu
       onError('sysid', e);
     }
   }
+  let chirp: ChirpResult | null = null;
+  try {
+    chirp = analyzeChirp(c, fm.mask);
+    // модель по chirp — вместо модели по step response для своей оси; сравнение — для экрана
+    if (chirp.models.length) {
+      const base = sysid ?? { axes: [], t: [] };
+      for (const m of chirp.models) {
+        const old = base.axes.find((x) => x.axis === m.axis) ?? null;
+        chirp.cmp.push(compareModels(old, m));
+        if (m.ok) {
+          const mm = { ...m, source: 'chirp' as const };
+          const k = base.axes.findIndex((x) => x.axis === m.axis);
+          if (k >= 0) base.axes[k] = mm;
+          else base.axes.push(mm);
+        }
+      }
+      if (!base.t.length) base.t = Array.from({ length: Math.round(cfg.pid.respS * cfg.sysid.decimHz) }, (_, i) => i / cfg.sysid.decimHz);
+      base.axes.sort((a, b) => a.axis - b.axis);
+      sysid = base;
+    }
+  } catch (e) {
+    onError('chirp', e);
+  }
   const cards = buildSummary(c, fm, nz, h, meta, filters?.base ?? null, pid);
-  return { c, fm, nz, h, filters, pid, sysid, cards };
+  const maneuvers = countManeuvers(c, fm.mask);
+  return { c, fm, nz, h, filters, pid, maneuvers, sysid, chirp, cards };
 }
 
 /** советы + ожидаемый эффект советов по фильтрам (точная модель, как в песочнице) */
@@ -64,7 +96,10 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
   const { c, nz, h, filters: f } = a;
   const inp = advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header));
   if (board) inp.board = board;
+  // запасы устойчивости — только те, которым можно верить (когерентность у среза)
+  inp.stability = (a.chirp?.axes ?? []).filter((x) => x.marginsOk && x.margins?.crossHz).map((x) => ({ axis: x.axis, pmDeg: x.margins!.pmDeg, gmDb: x.margins!.gmDb, crossHz: x.margins!.crossHz!, source: x.source }));
   const res = runAdvisor(inp, override);
+  res.cls = classInfo(activeClass());
   // прогноз PID по модели оси для советов, меняющих PID или фильтры
   for (const adv of res.advice) {
     if (adv.kind !== 'tune' || !Object.keys(adv.changes).length) continue;
@@ -162,10 +197,11 @@ export function snapshotLog(a: Analysis, adv: AdvisorResult, src: { fileName: st
     source: {
       fileName: src.fileName, logIndex: src.logIndex, byteStart: src.byteStart, byteEnd: src.byteEnd, datetime: H['Log start datetime'] || '', durationS: c.tSec[c.n - 1],
       firmware: c.fw.raw, fwCode: c.fw.code, board: H['Board information'] || '', craft: H['Craft name'] || '', fs: c.fs,
+      boardClass: activeClass(),
     },
     header: H, cards: a.cards, noise: a.nz, maskSeconds: a.fm.seconds, thrPct: c.thrPct,
     setpoint: [0, 1, 2].map((ax) => col(c.log, `setpoint[${ax}]`)),
     vbatCell: vb && c.cells ? Float32Array.from(vb, (v) => (v * 0.01) / c.cells) : null,
-    mask: a.fm.mask, filterBase: a.filters?.base ?? null, pid: a.pid, advice: adv, planEval: pe, planPid,
+    mask: a.fm.mask, filterBase: a.filters?.base ?? null, pid: a.pid, advice: adv, planEval: pe, planPid, maneuvers: a.maneuvers,
   });
 }

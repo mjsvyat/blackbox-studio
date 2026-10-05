@@ -2,7 +2,7 @@
 // crashscan.js, ripple.js, link.js для светофора MVP. Полные вкладки — этап 8.
 
 import cfg from '../config/analysis.json';
-import { FAILSAFE_PHASES, FLIGHT_MODES, bitNames } from '../decoder/constants';
+import { FAILSAFE_PHASES, bitNames, flightModeNames } from '../decoder/constants';
 import { col } from '../decoder/decoder';
 import { LogContext } from './context';
 import { FlightMask } from './flightMask';
@@ -257,7 +257,7 @@ export function analyzeHealth(ctx: LogContext, fm: FlightMask): HealthResult {
     const b = k + 1 < log.slow.length ? (log.slow[k + 1].t - t0) / 1e6 : tEnd;
     const fsPhase = iFs >= 0 ? FAILSAFE_PHASES[r.v[iFs]] ?? String(r.v[iFs]) : 'IDLE';
     const rxOk = iRx >= 0 ? r.v[iRx] !== 0 : true;
-    modes.push({ t0: a, t1: b, modes: iMode >= 0 ? bitNames(r.v[iMode], FLIGHT_MODES) : [], failsafe: fsPhase, rxOk });
+    modes.push({ t0: a, t1: b, modes: iMode >= 0 ? bitNames(r.v[iMode], flightModeNames(ctx.fw.code)) : [], failsafe: fsPhase, rxOk });
     if (!rxOk) {
       link.rxLossCount++;
       anomalies.push({ kind: 'RX_LOSS', t0: a, t1: b, text: 'Нет сигнала приёмника' });

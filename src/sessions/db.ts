@@ -3,12 +3,22 @@
 
 import type { SessionSnapshot } from './snapshot';
 import type { Incident } from '../incidents/incidents';
+import { BoardKey, adoptKey, migrate, moveFc, newProject } from './boards';
+import type { Campaign } from '../campaigns/campaign';
 
 export interface Project {
   id: string;
   name: string;
-  /** ключ борта из заголовка: Craft name или плата */
+  /** старый ключ борта (до E2.1): Craft name или плата */
   craftKey: string;
+  /** DeviceUID полётника (E2.1); нет — логи без UID (BF 4.5) или проект до миграции */
+  uid?: string;
+  /** Craft name, под которым борт известен сейчас */
+  craftName?: string;
+  /** полётник переехал отсюда в борт с этим id — новые логи сюда не приписываются */
+  fcMovedTo?: string;
+  /** тот же полётник, что у борта с этим id (переезд в новую раму) */
+  sameFcAs?: string;
   createdAt: string;
   notes: string;
   /** профиль борта: что знаем о нём (правила читают dSensitive и disabledRules) */
@@ -16,6 +26,12 @@ export interface Project {
 }
 
 export interface BoardProfile {
+  /** класс борта (E2.2) — от него зависят пороги */
+  cls?: string;
+  cells?: number;
+  kvRating?: number;
+  weightG?: number;
+  /** до E2.2 — свободный текст; читается для переноса в cls/kvRating/weightG */
   props?: string;
   kv?: string;
   weight?: string;
@@ -31,9 +47,26 @@ export interface SessionRecord {
   savedAt: string;
   notes: string;
   snap: SessionSnapshot;
+  /** записи в полётник по USB после этого полёта: бэкап «до», что применено, результат (B5) */
+  fcLog?: FcLogEntry[];
+  /** видео к этому полёту: файл (имя, размер) и сдвиг «видео = лог + offsetS» (D) */
+  video?: { name: string; size: number; offsetS: number };
 }
 
-export type StoreName = 'projects' | 'sessions' | 'incidents';
+export interface FcLogEntry {
+  at: string;
+  kind: 'apply' | 'rollback';
+  source: string;
+  ok: boolean;
+  lines: string[];
+  /** `diff all` до записи — им можно восстановить борт в конфигураторе */
+  diffAll: string;
+  /** прежние значения изменённых параметров (откат) */
+  before: Record<string, string>;
+  error?: string;
+}
+
+export type StoreName = 'projects' | 'sessions' | 'incidents' | 'campaigns';
 
 export interface Backend {
   all<T>(store: StoreName): Promise<T[]>;
@@ -42,7 +75,7 @@ export interface Backend {
 }
 
 export function memoryBackend(): Backend {
-  const m = { projects: new Map<string, unknown>(), sessions: new Map<string, unknown>(), incidents: new Map<string, unknown>() };
+  const m = { projects: new Map<string, unknown>(), sessions: new Map<string, unknown>(), incidents: new Map<string, unknown>(), campaigns: new Map<string, unknown>() };
   return {
     async all<T>(s: StoreName) { return [...m[s].values()].map((v) => structuredClone(v)) as T[]; },
     async put(s, v) { m[s].set(v.id, structuredClone(v)); },
@@ -52,11 +85,11 @@ export function memoryBackend(): Backend {
 
 export function idbBackend(name = 'blackbox-studio'): Promise<Backend> {
   return new Promise((res, rej) => {
-    // версия 2 — добавлен журнал инцидентов
-    const rq = indexedDB.open(name, 2);
+    // версия 2 — журнал инцидентов, 3 — кампании настройки
+    const rq = indexedDB.open(name, 3);
     rq.onupgradeneeded = () => {
       const db = rq.result;
-      for (const st of ['projects', 'sessions', 'incidents']) if (!db.objectStoreNames.contains(st)) db.createObjectStore(st, { keyPath: 'id' });
+      for (const st of ['projects', 'sessions', 'incidents', 'campaigns']) if (!db.objectStoreNames.contains(st)) db.createObjectStore(st, { keyPath: 'id' });
     };
     rq.onerror = () => rej(rq.error);
     rq.onsuccess = () => {
@@ -90,7 +123,7 @@ export class SessionStore {
     return all.filter((s) => !projectId || s.projectId === projectId).sort((x, y) => (x.snap.source.datetime || x.savedAt).localeCompare(y.snap.source.datetime || y.savedAt));
   }
 
-  /** проект борта по ключу из заголовка; нет — создаём */
+  /** проект по старому ключу (Craft name или плата); нет — создаём. Для логов — matchBoard + createBoard/adopt */
   async projectFor(craftKey: string, name?: string): Promise<Project> {
     const p = (await this.projects()).find((x) => x.craftKey === craftKey);
     if (p) return p;
@@ -101,9 +134,43 @@ export class SessionStore {
 
   async saveProject(p: Project): Promise<void> { await this.b.put('projects', p); }
 
+  /** новый борт под ключ лога */
+  async createBoard(k: BoardKey, name?: string): Promise<Project> {
+    const p = newProject(newId('prj'), k, name);
+    await this.b.put('projects', p);
+    return p;
+  }
+
+  /** пилот подтвердил «это борт p» — запомнить UID и имя */
+  async adopt(p: Project, k: BoardKey): Promise<Project> {
+    const np = adoptKey(p, k);
+    await this.b.put('projects', np);
+    return np;
+  }
+
+  /** «полётник переехал в новую раму»: новый борт с тем же UID, история старого — на месте */
+  async moveFc(id: string, name: string): Promise<Project> {
+    const old = (await this.projects()).find((p) => p.id === id);
+    if (!old) throw new Error('Нет такого борта');
+    const r = moveFc(old, newId('prj'), name);
+    await this.b.put('projects', r.old);
+    await this.b.put('projects', r.fresh);
+    return r.fresh;
+  }
+
+  /** миграция проектов до E2.1 (UID из сохранённых заголовков, деление по UID); идемпотентна */
+  async migrate(): Promise<{ projects: number; moved: number }> {
+    const m = migrate(await this.projects(), await this.sessions(), await this.incidents(), () => newId('prj'));
+    for (const p of m.projects) await this.b.put('projects', p);
+    for (const x of m.sessions) await this.b.put('sessions', x);
+    for (const i of m.incidents) await this.b.put('incidents', i);
+    return { projects: m.projects.length, moved: m.sessions.length };
+  }
+
   async deleteProject(id: string): Promise<void> {
     for (const s of await this.sessions(id)) await this.b.del('sessions', s.id);
     for (const i of await this.incidents(id)) await this.b.del('incidents', i.id);
+    for (const c of await this.campaigns(id)) await this.b.del('campaigns', c.id);
     await this.b.del('projects', id);
   }
 
@@ -114,7 +181,29 @@ export class SessionStore {
   }
 
   async updateSession(r: SessionRecord): Promise<void> { await this.b.put('sessions', r); }
-  async deleteSession(id: string): Promise<void> { await this.b.del('sessions', id); }
+
+  /** запись в полётник — в журнал последней сессии борта (по UID полётника); нет сессий — null */
+  async logFcWrite(uid: string, e: FcLogEntry): Promise<SessionRecord | null> {
+    const ps = (await this.projects()).filter((p) => p.uid === uid && !p.fcMovedTo);
+    if (!ps.length) return null;
+    const ss = (await this.sessions()).filter((s) => ps.some((p) => p.id === s.projectId));
+    const last = ss.at(-1);
+    if (!last) return null;
+    const r = { ...last, fcLog: [...(last.fcLog ?? []), e] };
+    await this.b.put('sessions', r);
+    return r;
+  }
+  async deleteSession(id: string): Promise<void> {
+    await this.b.del('sessions', id);
+    // из кампаний — тоже
+    for (const c of await this.campaigns()) if (c.sessionIds.includes(id)) await this.saveCampaign({ ...c, sessionIds: c.sessionIds.filter((x) => x !== id) });
+  }
+
+  async campaigns(projectId?: string): Promise<Campaign[]> {
+    return (await this.b.all<Campaign>('campaigns')).filter((c) => !projectId || c.projectId === projectId).sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+  }
+  async saveCampaign(c: Campaign): Promise<void> { await this.b.put('campaigns', c); }
+  async deleteCampaign(id: string): Promise<void> { await this.b.del('campaigns', id); }
 
   /** тот же лог уже сохранён (файл, номер, время начала) */
   async findSame(snap: SessionSnapshot): Promise<SessionRecord | null> {
@@ -138,7 +227,7 @@ export class SessionStore {
   async exportProject(id: string): Promise<string> {
     const p = (await this.projects()).find((x) => x.id === id);
     if (!p) throw new Error('Нет такого проекта');
-    return JSON.stringify({ format: 'blackbox-studio-project', v: 1, exportedAt: new Date().toISOString(), project: p, sessions: await this.sessions(id), incidents: await this.incidents(id) });
+    return JSON.stringify({ format: 'blackbox-studio-project', v: 1, exportedAt: new Date().toISOString(), project: p, sessions: await this.sessions(id), incidents: await this.incidents(id), campaigns: await this.campaigns(id) });
   }
 
   /** импорт: проект с тем же id дополняется, сессии с существующими id пропускаются */
@@ -156,6 +245,10 @@ export class SessionStore {
     }
     const haveInc = new Set((await this.incidents()).map((i) => i.id));
     for (const i of (d.incidents ?? []) as Incident[]) if (!haveInc.has(i.id)) await this.b.put('incidents', { ...i, projectId: proj.id });
-    return { project: proj, added, skipped };
+    const haveCmp = new Set((await this.campaigns()).map((c) => c.id));
+    for (const c of (d.campaigns ?? []) as Campaign[]) if (!haveCmp.has(c.id)) await this.b.put('campaigns', { ...c, projectId: proj.id });
+    // экспорт до E2.1: борт без UID — разложить по UID из заголовков сессий
+    await this.migrate();
+    return { project: (await this.projects()).find((p) => p.id === proj.id) ?? proj, added, skipped };
   }
 }

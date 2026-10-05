@@ -178,3 +178,38 @@ table.grid tr.click:hover td { background: var(--bg3); }
 .u-legend { color: var(--fg2); font-size: 12px; }
 .u-select { background: rgba(78, 161, 255, 0.15); }
 .u-select.shift { background: rgba(60, 207, 122, 0.25); }
+
+/* полётник по USB */
+.meter { height: 8px; background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.meter > div { height: 100%; background: var(--fg2); transition: width 0.2s; }
+.meter.accent > div { background: var(--accent); }
+table.kv th { width: 180px; font-size: 13px; }
+.panel.good { border-left: 4px solid var(--green); }
+.row .spacer { flex: 1; }
+
+/* кампания */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 8px; }
+.camp-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.camp-item:hover, .camp-item.active { background: var(--bg3); }
+.good-text { color: var(--green); }
+.warn-text { color: var(--yellow); }
+pre.cli { background: var(--bg3); padding: 6px 8px; border-radius: 6px; margin: 4px 0; white-space: pre-wrap; }
+table.proto tr.bad td:first-child { color: var(--red); }
+table.proto tr.ok td:first-child { color: var(--green); }
+.grid3 > div > b:first-child { display: block; margin-bottom: 4px; }
+
+/* видео */
+.video-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; margin-top: 8px; }
+.video-wrap { position: relative; flex: 1 1 520px; max-width: 760px; }
+.video-el { width: 100%; display: block; background: #000; border-radius: 6px; }
+.video-ov { position: absolute; left: 0; top: 0; pointer-events: none; }
+.video-ctl { flex: 0 1 340px; display: flex; flex-direction: column; gap: 8px; }
+
+/* переключатель бортов */
+.board-menu { position: relative; }
+.board-menu > summary { list-style: none; cursor: pointer; }
+.board-menu > summary::-webkit-details-marker { display: none; }
+.board-list { position: absolute; right: 0; top: 30px; z-index: 40; min-width: 300px; max-height: 70vh; overflow: auto; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 6px; }
+.board-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.board-item:hover, .board-item.active { background: var(--bg3); }

@@ -9,7 +9,7 @@
 // только от неточно известной частоты сглаживания, применённой к разнице.
 
 import cfg from '../config/analysis.json';
-import { FLIGHT_MODES, bitNames } from '../decoder/constants';
+import { bitNames, flightModeNames } from '../decoder/constants';
 import { Column, col } from '../decoder/decoder';
 import { nums } from '../decoder/header';
 import { LogContext } from '../analysis/context';
@@ -96,6 +96,7 @@ export function nonRateMask(c: LogContext): { mask: Uint8Array; seconds: number;
   const S = log.slowFieldNames;
   const iMode = S.indexOf('flightModeFlags');
   const bad = new Set(C.nonRateModes);
+  const names = flightModeNames(c.fw.code);
   const seen = new Set<string>();
   let cnt = 0;
   if (iMode >= 0 && log.slow.length) {
@@ -105,7 +106,7 @@ export function nonRateMask(c: LogContext): { mask: Uint8Array; seconds: number;
       const r = log.slow[k];
       const a = (r.t - t0) / 1e6;
       const b = k + 1 < log.slow.length ? (log.slow[k + 1].t - t0) / 1e6 : Infinity;
-      const hit = bitNames(r.v[iMode], FLIGHT_MODES).filter((m) => bad.has(m));
+      const hit = bitNames(r.v[iMode], names).filter((m) => bad.has(m));
       if (!hit.length) continue;
       hit.forEach((m) => seen.add(m));
       while (i < n && tSec[i] < a) i++;

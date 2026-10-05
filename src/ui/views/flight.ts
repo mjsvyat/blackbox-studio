@@ -7,6 +7,7 @@ import { lineChart } from '../charts/line';
 import { fmt, fmtTime, h } from '../dom';
 import { helpBtn } from '../help';
 import { set, setAnalysisRange, state } from '../store';
+import { seekLog, videoPanel } from '../video';
 
 export function overviewChart(): TimeChart {
   return new TimeChart({
@@ -83,7 +84,7 @@ export function flightView(track: (d: () => void) => void): HTMLElement {
     rows.length
       ? h('table', { class: 'grid' },
           h('thead', null, h('tr', null, h('th', null, T.flight.evTime), h('th', null, T.flight.evWhat))),
-          h('tbody', null, rows.map((r) => h('tr', { class: 'click', onclick: () => { zoomTo(r.t); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
+          h('tbody', null, rows.map((r) => h('tr', { class: 'click', onclick: () => { zoomTo(r.t); seekLog(r.t); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
             h('td', null, fmtTime(r.t)),
             h('td', null, h('span', { class: `badge ${['GYRO_CLIP', 'MOTOR_DESYNC', 'FAILSAFE', 'hole'].includes(r.kind) ? 'red' : r.kind === 'event' ? '' : 'yellow'}` }, r.kind === 'event' ? 'лог' : r.kind === 'hole' ? 'данные' : 'аномалия'), r.what)))))
       : h('div', { class: 'muted' }, T.flight.noEvents));
@@ -92,6 +93,7 @@ export function flightView(track: (d: () => void) => void): HTMLElement {
     h('h2', null, T.flight.title),
     charts[0].el,
     rangeControls(),
+    videoPanel(),
     h('div', { class: 'panel' }, h('b', { class: 'small' }, T.link.modes, ' '), h('span', { class: 'muted small' }, T.link.modesNote), strip),
     charts.slice(1, 4).map((c) => c.el),
     h('div', { class: 'two' }, charts[4].el, charts[5].el),
@@ -150,7 +152,7 @@ export function motorsView(track: (d: () => void) => void): HTMLElement {
   }
   const evs = an.anomalies.filter((x) => ['MOTOR_DESYNC', 'ALL_MOTORS_SAT', 'MOTOR_SAT', 'VBAT_DIP', 'GYRO_CLIP'].includes(x.kind));
   const evBox = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.mp.eventsTitle),
-    evs.length ? h('table', { class: 'grid small' }, h('tbody', null, evs.map((x) => h('tr', { class: 'click', onclick: () => { zoomTo(x.t0); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
+    evs.length ? h('table', { class: 'grid small' }, h('tbody', null, evs.map((x) => h('tr', { class: 'click', onclick: () => { zoomTo(x.t0); seekLog(x.t0); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
       h('td', null, fmtTime(x.t0)), h('td', null, h('span', { class: `badge ${x.kind === 'VBAT_DIP' ? 'yellow' : 'red'}` }, x.kind), ' ', x.text)))))
       : h('div', { class: 'muted' }, T.mp.noEvents));
   return h('div', null, h('h2', null, T.tabs.motors), cardsBox, h('div', { style: 'height:12px' }), charts[0].el, rangeControls(), charts.slice(1).map((c) => c.el),

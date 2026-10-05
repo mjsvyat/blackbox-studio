@@ -1,0 +1,62 @@
+# CI: типы → тесты → сборка на каждый PR и push в main.
+# Большой дамп (tests/fixtures/blackbox.txt, 132 МБ, Git LFS) НЕ скачивается: каждый прогон
+# съедал бы 133 МБ из бесплатных 1 ГБ/мес. Его тесты пропускаются (hasFixture), сводка
+# прогона пишет, сколько и почему. Полный прогон — локально: `git lfs pull && npm test`.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Кэш node_modules (по package-lock.json)
+        id: nm
+        uses: actions/cache@v5
+        with:
+          path: node_modules
+          key: nm-${{ runner.os }}-node${{ hashFiles('.nvmrc') }}-${{ hashFiles('package-lock.json') }}
+
+      - name: npm ci
+        if: steps.nm.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Проверка типов
+        run: npx tsc --noEmit
+
+      - name: Тесты (без большого дампа)
+        run: npx vitest run --reporter=default --reporter=json --outputFile.json=test-results.json
+
+      - name: Сводка тестов
+        if: always()
+        run: test -f test-results.json && node scripts/ci-test-summary.mjs test-results.json || echo "отчёта тестов нет — смотри шаг «Тесты»"
+
+      - name: Сборка
+        run: npm run build
+
+      - name: dist/index.html — артефакт (скачать, распаковать, открыть двойным кликом)
+        uses: actions/upload-artifact@v6
+        with:
+          name: blackbox-studio-dist
+          path: dist/index.html
+          if-no-files-found: error
+          retention-days: 30

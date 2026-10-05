@@ -2,6 +2,9 @@
 // Web Worker: декодирование, анализ, выдача рядов для графиков. Весь лог живёт
 // здесь; в UI уходят только спектры, метрики и прореженные куски рядов.
 
+import { freqView } from '../sysid/chirp';
+import { activeClass, classInfo, setBoardClass } from '../config/classes';
+import { rateMagnitude } from '../video/sync';
 import { LogContext, buildContext } from '../analysis/context';
 import { idxAt } from '../analysis/flightMask';
 import { byThrottle } from '../analysis/health';
@@ -56,6 +59,10 @@ ctxW.onmessage = async (e: MessageEvent<ToWorker>) => {
       post({ type: 'scanned', structure, name: m.name });
     } else if (m.type === 'open') {
       await openLog(m.logIndex);
+    } else if (m.type === 'setClass') {
+      // класс борта: пороги с переопределениями; открытый лог — пересчитать светофор и советы
+      setBoardClass(m.cls);
+      if (ctx) post({ type: 'analysis', analysis: analyze() });
     } else if (m.type === 'setRange') {
       range = m.range;
       if (ctx) post({ type: 'analysis', analysis: analyze() });
@@ -174,6 +181,7 @@ function analyze(): AnalysisPayload {
   }
   h.anomalies.sort((a, b) => a.t0 - b.t0);
   return {
+    cls: classInfo(activeClass()),
     cards,
     maskSegments: fm.segments.map((s) => [c.tSec[s.i0], c.tSec[s.i1 - 1]] as [number, number]),
     maskSeconds: fm.seconds,
@@ -244,9 +252,11 @@ function pidPayload(c: LogContext): PidPayload {
       tauMs: m.plant.a > 0 ? (-1000 / m.fs) / Math.log(m.plant.a) : NaN,
       plantDelayMs: (m.plant.d / m.fs) * 1000,
       pFit: m.ctrl.pFit, dFit: m.ctrl.dFit, fFit: m.ctrl.fFit,
+      source: m.source ?? ('step' as const),
     })),
   } : null;
-  return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header), model };
+  const freq = cur!.chirp ? freqView(cur!.chirp, c.tSec) : null;
+  return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header), model, freq };
 }
 
 let lastBoardKey = '';
@@ -289,6 +299,8 @@ function buildSeries(c: LogContext): void {
     put(`F${a}`, col(log, `axisF[${a}]`));
   }
   s.set('thr', c.thrPct);
+  // модуль угловой скорости — для синхронизации с видео (движение кадра) и оверлея
+  s.set('rate', rateMagnitude([0, 1, 2].map((a) => col(log, `gyroADC[${a}]`)), c.n));
   c.motorNorm.forEach((m, i) => {
     const a = new Float32Array(c.n);
     for (let k = 0; k < c.n; k++) a[k] = m[k] * 100;

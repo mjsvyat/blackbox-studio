@@ -1,6 +1,6 @@
 {
   "_comment": "Пороги анализа и светофора. Меняются здесь, а не в коде. У каждого порога — история изменений в _history.",
-  "version": "1.1",
+  "version": "1.4",
   "flightMask": {
     "throttleMinPct": 8,
     "motorMinNorm": 0.2,
@@ -113,7 +113,10 @@
       "CHIRP",
       "PASSTHRU",
       "FPVANGLEMIX",
-      "HEADADJ"
+      "HEADADJ",
+      "ALTHOLD",
+      "POSHOLD",
+      "AUTOPILOT"
     ],
     "histBinPct": 5,
     "centerDeflection": 0.1,
@@ -132,6 +135,40 @@
       {
         "version": "1.0",
         "why": "стартовые: на 8 логах (2026.6.1 и 4.5.2) формула Actual из заголовка даёт записанный setpoint на стоячем стике с ошибкой ≈ округления (0.25–0.5 °/с СКЗ); расхождения — только в HEADFREE/GPS Rescue и при быстрых движениях стика (сглаживание RC)"
+      },
+      {
+        "version": "1.3",
+        "was": [
+          "ANGLE",
+          "HORIZON",
+          "HEADFREE",
+          "GPSRESCUE",
+          "GPSHOME",
+          "GPSHOLD",
+          "FAILSAFE",
+          "CHIRP",
+          "PASSTHRU",
+          "FPVANGLEMIX",
+          "HEADADJ"
+        ],
+        "now": [
+          "ANGLE",
+          "HORIZON",
+          "HEADFREE",
+          "GPSRESCUE",
+          "GPSHOME",
+          "GPSHOLD",
+          "FAILSAFE",
+          "CHIRP",
+          "PASSTHRU",
+          "FPVANGLEMIX",
+          "HEADADJ",
+          "ALTHOLD",
+          "POSHOLD",
+          "AUTOPILOT"
+        ],
+        "why": "имена битов flightModeFlags теперь по версии прошивки (раньше — порядок BF 3.x: на 4.5.2 исключались ANTIGRAVITY/BEEPERON/LEDLOW/OSD вместо HEADFREE, на 2026.6.1 — не GPSRESCUE); добавлены режимы удержания 2025.12+",
+        "by": "наблюдение (C: сверка rc_modes.h)"
       }
     ]
   },
@@ -232,8 +269,19 @@
       {
         "version": "1.0",
         "why": "стартовые"
+      },
+      {
+        "version": "1.2",
+        "was": null,
+        "now": {
+          "minFlightS": 10
+        },
+        "why": "сравнение с полётом 1 с на земле показывало «шум лучше»; при красной честности вердикты по метрикам полёта не выдаются. Стики > stickRatio раз (висение против фристайла) — теперь красный, а не жёлтый",
+        "by": "наблюдение"
       }
-    ]
+    ],
+    "minFlightS": 10,
+    "_unitShort": "полёт короче minFlightS с чистого полёта — сравнивать нечего (сравнение помечается красным, вердикты «лучше/хуже» для метрик, зависящих от полёта, не выдаются)"
   },
   "incidents": {
     "dtermRisePct": 15,
@@ -302,6 +350,151 @@
       {
         "version": "1.0",
         "why": "стартовые; подгонка «по времени» (разомкнутая и замкнутая) на логах давала fit ≈ 0 — объект подбирается по измеренному step response"
+      }
+    ]
+  },
+  "protocol": {
+    "_comment": "Протокол тестового полёта (A2): какие манёвры распознаются в логе и сколько их нужно для честного сравнения итераций кампании.",
+    "hover": {
+      "stickDps": 40,
+      "thrMinPct": 10,
+      "thrMaxPct": 70,
+      "minRunS": 2,
+      "needS": 20,
+      "_unit": "висение: |setpoint| ролл/питч/яв < stickDps °/с и газ в [thrMinPct, thrMaxPct] %, куски ≥ minRunS с; нужно needS с в сумме"
+    },
+    "flip": {
+      "rateDps": 300,
+      "minDeg": 270,
+      "gapS": 0.03,
+      "need": 2,
+      "_unit": "флип/ролл по оси: |gyro| > rateDps °/с непрерывно (провалы ≤ gapS с), поворот ≥ minDeg °; нужно need по ролу и по питчу"
+    },
+    "punch": {
+      "fromPct": 35,
+      "toPct": 80,
+      "maxS": 0.5,
+      "need": 2,
+      "_unit": "панч: газ с < fromPct % до > toPct % за ≤ maxS с"
+    },
+    "chop": {
+      "fromPct": 60,
+      "toPct": 15,
+      "maxS": 0.3,
+      "need": 2,
+      "_unit": "сброс газа (пропвош): с > fromPct % до < toPct % за ≤ maxS с"
+    },
+    "goalNeed": {
+      "propwash": {
+        "chop": 4
+      },
+      "cooler": {
+        "hoverS": 30
+      },
+      "_unit": "цели кампании, которым нужно больше манёвров одного вида"
+    },
+    "minLogHz": 1600,
+    "minFlightS": 30,
+    "_unitLog": "частота лога ниже minLogHz — фильтры не оценить (как filters); полёт короче minFlightS с чистого полёта — мало данных",
+    "_history": [
+      {
+        "version": "1.2",
+        "why": "раздел добавлен (A2: протокол тестового полёта); пороги — по логам 4.5.2 №3 (флипы) и 2026.6.1 №4",
+        "by": "наблюдение"
+      }
+    ]
+  },
+  "classes": {
+    "_comment": "Классы бортов (E2.2). Все пороги выше откалиброваны на 5\" 6S (12 логов одного борта). Для другого класса — переопределения в overrides (тот же путь, что в этом файле: { \"advisor\": { \"dtermRms\": { \"red\": 25 } } }). Пока данных нет, класс помечен calibrated: false и работает «по аналогии» с like — интерфейс об этом честно пишет. Правка переопределения — как любого порога: значение + запись в _history.",
+    "default": "5in",
+    "list": {
+      "65mm": {
+        "calibrated": false,
+        "like": "5in",
+        "overrides": {}
+      },
+      "85mm": {
+        "calibrated": false,
+        "like": "5in",
+        "overrides": {}
+      },
+      "3in": {
+        "calibrated": false,
+        "like": "5in",
+        "overrides": {}
+      },
+      "5in": {
+        "calibrated": true,
+        "overrides": {}
+      },
+      "7in": {
+        "calibrated": false,
+        "like": "5in",
+        "overrides": {}
+      },
+      "10in": {
+        "calibrated": false,
+        "like": "5in",
+        "overrides": {}
+      }
+    },
+    "_history": [
+      {
+        "version": "1.3",
+        "why": "раздел добавлен (E2.2): классы бортов; переопределений пока нет — данных по другим классам нет",
+        "by": "наблюдение"
+      }
+    ]
+  },
+  "chirp": {
+    "_comment": "Частотная характеристика и идентификация по chirp (C): sysid/frf.ts, sysid/chirp.ts.",
+    "windowS": 1,
+    "_unitWindow": "окно Уэлча, с (шаг по частоте ≈ 1/windowS Гц)",
+    "minCoh": 0.6,
+    "_unitCoh": "когерентность, ниже которой точкам не верим (подгонка модели, АЧХ на графике бледная)",
+    "marginCoh": 0.8,
+    "_unitMarginCoh": "запасы устойчивости выдаются, только если когерентность у частоты среза ≥ marginCoh",
+    "fitFMin": 1,
+    "fitFMax": 50,
+    "_unitFit": "полоса подгонки модели по АЧХ/ФЧХ, Гц: выше ~50 Гц модель на 500 Гц (sysid.decimHz) расходится с логом 2 кГц по фазе (проверено на синтетике)",
+    "minChirpS": 5,
+    "_unitMinChirp": "минимум секунд chirp по оси для анализа",
+    "pm": {
+      "green": 45,
+      "red": 30,
+      "_unit": "запас по фазе, градусы: меньше red — близко к раскачке"
+    },
+    "gm": {
+      "green": 6,
+      "red": 3,
+      "_unit": "запас по амплитуде, дБ"
+    },
+    "parts": 4,
+    "_unitParts": "на сколько групп (через одно окно) делить окна Уэлча для полосы прогноза модели по chirp",
+    "_history": [
+      {
+        "version": "1.3",
+        "why": "раздел добавлен (C)",
+        "by": "наблюдение (синтетика tests/chirp.test.ts)"
+      }
+    ]
+  },
+  "learning": {
+    "_comment": "Обучение по истории (A3–A4): точность прогнозов, статистика правил, предложения порогов. Пороги НЕ меняются автоматически — утилита формирует отчёт-предложение, правит человек (analysis.json + _history) или Claude по CLAUDE.md.",
+    "predTolPct": 10,
+    "_unitTol": "прогноз без полосы (фильтры) «попал», если |прогноз − факт| ≤ predTolPct % от факта",
+    "minEvidence": 2,
+    "_unitEvidence": "сколько сессий-доказательств нужно для предложения порога",
+    "hotTemp": 2,
+    "coldTemp": 1,
+    "_unitTemp": "отметка пилота «моторы»: ≥ hotTemp — горячие, ≤ coldTemp — холодные/тёплые",
+    "marginPct": 5,
+    "_unitMargin": "новый порог — с запасом marginPct % от крайнего значения доказательств",
+    "_history": [
+      {
+        "version": "1.4",
+        "why": "раздел добавлен (A3–A4)",
+        "by": "наблюдение"
       }
     ]
   }

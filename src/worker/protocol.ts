@@ -1,5 +1,7 @@
 // Сообщения между UI и воркером.
 
+import type { FreqView } from '../sysid/chirp';
+import type { ClassInfo } from '../config/classes';
 import type { Card } from '../analysis/summary';
 import type { Anomaly, LinkStats, ModeSpan, MotorStats, PowerStats, ThrottleDetail } from '../analysis/health';
 import type { Burst, ClassifiedPeak } from '../analysis/noise';
@@ -20,6 +22,7 @@ export type ToWorker =
   | { type: 'scan'; file: Blob; name: string }
   | { type: 'open'; logIndex: number }
   | { type: 'setRange'; range: { t0: number; t1: number } | null }
+  | { type: 'setClass'; cls: string | null }
   | { type: 'series'; reqId: number; keys: string[]; t0: number; t1: number; width: number }
   | { type: 'filtersInit' }
   | { type: 'filtersEval'; reqId: number; params: FilterParams }
@@ -51,7 +54,9 @@ export interface PidPayload extends PidResult {
   fwCode: number;
   simplified: { s: SimplifiedPids; dExtraName: string } | null;
   /** модель оси (этап 7): кривая модели на текущих коэффициентах и качество */
-  model: { t: number[]; axes: (AxisForecast & { tauMs: number; plantDelayMs: number; pFit: number; dFit: number; fFit: number })[] } | null;
+  model: { t: number[]; axes: (AxisForecast & { tauMs: number; plantDelayMs: number; pFit: number; dFit: number; fFit: number; source: 'step' | 'chirp' })[] } | null;
+  /** частотная характеристика, запасы, chirp (C) */
+  freq: FreqView | null;
 }
 
 export interface AdvicePayload extends AdvisorResult {
@@ -73,6 +78,8 @@ export interface AxisSpectra {
 }
 
 export interface AnalysisPayload {
+  /** класс борта, по порогам которого посчитан светофор */
+  cls: ClassInfo;
   cards: Card[];
   maskSegments: [number, number][];
   maskSeconds: number;

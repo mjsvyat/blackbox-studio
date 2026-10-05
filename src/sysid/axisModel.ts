@@ -240,6 +240,8 @@ export interface AxisModel {
   parts: PlantModel[];
   ok: boolean;
   why: 'ok' | 'no-step' | 'no-ctrl' | 'bad-fit';
+  /** по чему подобран объект: step response обычного полёта или АЧХ/ФЧХ chirp (C) */
+  source?: 'step' | 'chirp';
 }
 
 export function identifyAxis(axis: number, x: AxisData, step: { mean: ArrayLike<number>; parts: ArrayLike<number>[]; enough: boolean }): AxisModel {
