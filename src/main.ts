@@ -12,6 +12,7 @@ import { ratesView } from './ui/views/rates';
 import { pidView } from './ui/views/pid';
 import { tuningView } from './ui/views/tuning';
 import { sessionsView } from './ui/views/sessions';
+import { fcView } from './ui/views/fc';
 
 const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan?: string[] }[] = [
   { id: 'file', title: T.tabs.file, needsLog: false },
@@ -24,6 +25,7 @@ const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan
   { id: 'flight', title: T.tabs.flight, needsLog: true },
   { id: 'tuning', title: T.tabs.tuning, needsLog: true },
   { id: 'compare', title: T.tabs.compare, needsLog: false },
+  { id: 'fc', title: T.tabs.fc, needsLog: false },
 ];
 
 const app = document.getElementById('app')!;
@@ -67,6 +69,7 @@ function renderTopbar(): void {
     h('span', { class: 'file-name' }, state.fileName ?? T.noFile),
     sel ?? "",
     h('span', { class: 'spacer' }),
+    h('button', { class: `btn small ${state.fc.phase === 'connected' ? 'primary' : ''}`, onclick: () => set({ tab: 'fc' }) }, T.fc.open),
     state.info ? h('button', { class: 'btn small', onclick: () => exportReport() }, T.rep.button) : '',
     h('button', { class: 'btn small', onclick: openGlossary }, T.help.glossary),
     h('button', { class: 'btn small', onclick: toggleTheme }, document.documentElement.dataset.theme === 'dark' ? T.themeLight : T.themeDark),
@@ -100,6 +103,7 @@ function render(): void {
   if (!state.structure) {
     // сохранённые сессии можно смотреть и без открытого файла
     if (state.tab === 'compare') main.append(sessionsView(track));
+    else if (state.tab === 'fc') main.append(fcView());
     else main.append(dropZone());
     return;
   }
@@ -119,6 +123,7 @@ function render(): void {
     case 'compare': main.append(sessionsView(track)); break;
     case 'flight': main.append(flightView(track)); break;
     case 'motors': main.append(motorsView(track)); break;
+    case 'fc': main.append(fcView()); break;
     default:
       main.append(h('div', { class: 'placeholder' },
         h('h2', { style: 'justify-content:center' }, tab.title, helpBtn(`card-${tab.id === 'filters' ? 'filters' : 'pid'}`)),
@@ -132,7 +137,9 @@ function dropZone(): HTMLElement {
     h('h2', { style: 'justify-content:center' }, T.appTitle),
     h('p', null, T.dropHint),
     h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
-    h('div', { style: 'margin-top:12px' }, h('button', { class: 'btn small', onclick: () => set({ tab: 'compare' }) }, T.ses.title)));
+    h('div', { class: 'row', style: 'margin-top:12px;justify-content:center' },
+      h('button', { class: 'btn small', onclick: () => set({ tab: 'compare' }) }, T.ses.title),
+      h('button', { class: 'btn small', onclick: () => set({ tab: 'fc' }) }, T.fc.open)));
   return z;
 }
 
@@ -158,7 +165,7 @@ function renderProgress(): void {
   progressLabel.textContent = `${p.stage || T.loading} · ${Math.round(p.fraction * 100)} %`;
 }
 
-const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor'];
+const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor', 'fc'];
 subscribe((_s, changed) => {
   if (changed.has('progress')) renderProgress();
   if (RERENDER.some((k) => changed.has(k))) {
@@ -170,3 +177,16 @@ subscribe((_s, changed) => {
 });
 
 render();
+
+// Только dev-сервер: эмулятор полётника для проверки вкладки «Полётник» без железа
+// (`await __bbFakeFc({ usedSize: … })` в консоли). В сборку dist не попадает.
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__bbFakeFc = async (o: Record<string, unknown> = {}) => {
+    const { FakeFc } = await import('./fc/emulator');
+    const { fcConnect } = await import('./ui/fcStore');
+    const fc = new FakeFc({ delayMs: 2, eraseMs: 3000, ...o });
+    set({ tab: 'fc' });
+    await fcConnect(Object.assign(fc, { info: 'эмулятор' }));
+    return fc;
+  };
+}

@@ -16,6 +16,7 @@ import { reportHtml } from '../report/report';
 import type { AxisForecast } from '../sysid/predict';
 import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
+import { FcUi, initialFc } from './fcState';
 
 export interface AppState {
   fileName: string | null;
@@ -65,6 +66,8 @@ export interface AppState {
   pidSandbox: Record<string, number> | null;
   pidForecast: AxisForecast[] | null;
   pidBusy: boolean;
+  /** полётник по USB */
+  fc: FcUi;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -108,6 +111,7 @@ export const state: AppState = {
   pidSandbox: null,
   pidForecast: null,
   pidBusy: false,
+  fc: initialFc(),
 };
 
 const listeners = new Set<Listener>();

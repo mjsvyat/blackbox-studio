@@ -178,3 +178,11 @@ table.grid tr.click:hover td { background: var(--bg3); }
 .u-legend { color: var(--fg2); font-size: 12px; }
 .u-select { background: rgba(78, 161, 255, 0.15); }
 .u-select.shift { background: rgba(60, 207, 122, 0.25); }
+
+/* полётник по USB */
+.meter { height: 8px; background: var(--bg3); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.meter > div { height: 100%; background: var(--fg2); transition: width 0.2s; }
+.meter.accent > div { background: var(--accent); }
+table.kv th { width: 180px; font-size: 13px; }
+.panel.good { border-left: 4px solid var(--green); }
+.row .spacer { flex: 1; }
