@@ -82,8 +82,13 @@ export function getValue(resp: string, name: string): string | null {
 }
 
 // --- что можно посылать в CLI ---
+// `set` — только для параметров из справочника утилиты (params/registry.ts): все генераторы CLI
+// (советчик, песочницы, перенос, откат) работают только с ними, а чужой параметр через `set`
+// (протокол моторов, ресурсы пинов, миксер…) утилите писать незачем и опасно. Значение —
+// слово из списка для перечислений или число для остальных. `get` читает — разрешён для любого имени.
+const SET_LINE = /^set ([a-z0-9_]+) = ([A-Za-z0-9_.\-]+)$/;
+const NUMBER = /^-?\d+(\.\d+)?$/;
 const ALLOWED: RegExp[] = [
-  /^set [a-z0-9_]+ = [A-Za-z0-9_.\-]+$/,
   /^get [a-z0-9_]+$/,
   /^(diff|dump) all$/,
   /^save$/,
@@ -91,9 +96,20 @@ const ALLOWED: RegExp[] = [
   /^version$/,
 ];
 
+/** `set имя = значение`: имя есть в справочнике, значение подходит к его типу */
+export function setAllowed(line: string): boolean {
+  const m = line.match(SET_LINE);
+  if (!m) return false;
+  const p = paramByName.get(m[1]);
+  if (!p) return false;
+  const v = m[2];
+  if (p.options) return p.options.some((o) => o.toUpperCase() === v.toUpperCase());
+  return NUMBER.test(v);
+}
+
 /** строка, которую утилита согласна послать в CLI (моторы, загрузчик, defaults и т. п. — нет) */
 export function cliAllowed(line: string): boolean {
-  return ALLOWED.some((r) => r.test(line));
+  return setAllowed(line) || ALLOWED.some((r) => r.test(line));
 }
 
 /** имя параметра из `set x = v` */
