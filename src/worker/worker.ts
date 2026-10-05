@@ -2,6 +2,7 @@
 // Web Worker: декодирование, анализ, выдача рядов для графиков. Весь лог живёт
 // здесь; в UI уходят только спектры, метрики и прореженные куски рядов.
 
+import { freqView } from '../sysid/chirp';
 import { activeClass, classInfo, setBoardClass } from '../config/classes';
 import { rateMagnitude } from '../video/sync';
 import { LogContext, buildContext } from '../analysis/context';
@@ -251,9 +252,11 @@ function pidPayload(c: LogContext): PidPayload {
       tauMs: m.plant.a > 0 ? (-1000 / m.fs) / Math.log(m.plant.a) : NaN,
       plantDelayMs: (m.plant.d / m.fs) * 1000,
       pFit: m.ctrl.pFit, dFit: m.ctrl.dFit, fFit: m.ctrl.fFit,
+      source: m.source ?? ('step' as const),
     })),
   } : null;
-  return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header), model };
+  const freq = cur!.chirp ? freqView(cur!.chirp, c.tSec) : null;
+  return { ...cur!.pid!, fwCode: c.fw.code, simplified: simplifiedFromHeader(c.log.header), model, freq };
 }
 
 let lastBoardKey = '';

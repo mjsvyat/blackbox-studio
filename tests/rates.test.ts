@@ -144,11 +144,11 @@ describe.skipIf(!HAS_SMALL)('рейты на логе 2026.6.1 №4', () => {
 });
 
 describe.skipIf(!HAS_BIG)('рейты на логах 4.5.2', () => {
-  it('№0: HEADFREE/GPS Rescue исключены, формула совпадает', async () => {
+  it('№0: GPS Rescue исключён (бит 7 в 4.5.2; раньше ошибочно назывался HEADFREE), формула совпадает', async () => {
     const { c, fm } = await openLog(BIG_DUMP, 0);
     const w = buildRatesBase(c, fm.mask, ratesFromHeader(c.log.header)!);
     expect(w.base.check.status).toBe('green');
-    expect(w.base.check.nonRateModes).toEqual(expect.arrayContaining(['HEADFREE']));
+    expect(w.base.check.nonRateModes).toEqual(['GPSRESCUE']);
     expect(w.base.check.nonRateS).toBeGreaterThan(5);
   });
 

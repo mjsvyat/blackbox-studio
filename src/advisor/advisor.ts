@@ -39,7 +39,7 @@ export interface Advice {
   tab: string;
   /** выбрано в эту итерацию; иначе — почему отложено */
   selected: boolean;
-  deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky' | 'caution';
+  deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky' | 'caution' | 'stability';
   /** на этом борту правило уже ухудшало результат (этап 6) */
   caution?: { worse: number; n: number; incidents: string[] };
   /** ожидаемый эффект по точной модели (фильтры) — заполняет воркер */
@@ -67,6 +67,8 @@ export interface AdvisorInput {
   power: { resistanceMOhm: number | null; rippleP99: number | null; cells: number };
   /** знание о борте (профиль и история, этап 6) */
   board?: BoardKnowledge;
+  /** запасы устойчивости, которым можно верить (C: chirp или когерентный полёт) */
+  stability?: { axis: number; pmDeg: number | null; gmDb: number | null; crossHz: number; source: 'chirp' | 'flight' }[];
 }
 
 export interface Range { mid: number; lo: number; hi: number }
@@ -255,6 +257,17 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     }
   }
 
+  // ---------- запасы устойчивости (C) ----------
+  // мал запас по фазе — P/D не поднимаем (это ближе к раскачке), сначала задержка фильтров;
+  // мал запас по амплитуде — P/I на шаг ниже. Только по запасам, которым можно верить.
+  const SB = cfg.chirp;
+  const stab = (inp.stability ?? []).filter((x) => x.axis < 2);
+  const pmLow = stab.filter((x) => isNum(x.pmDeg) && x.pmDeg < SB.pm.green).sort((a, b) => a.pmDeg! - b.pmDeg!)[0];
+  const gmLow = stab.filter((x) => isNum(x.gmDb) && x.gmDb < SB.gm.red).sort((a, b) => a.gmDb! - b.gmDb!)[0];
+  const stabilityBlock = !!pmLow || !!gmLow;
+  if (pmLow) add(c, { id: 'R-STAB-PM-LOW-01', version: 1, kind: 'info', severity: pmLow.pmDeg! < SB.pm.red ? 'red' : 'yellow', inputs: { axis: pmLow.axis, pm: Math.round(pmLow.pmDeg!), green: SB.pm.green, red: SB.pm.red, hz: Math.round(pmLow.crossHz), src: pmLow.source }, tab: 'filters', priority: 5 });
+  if (gmLow && pid) add(c, { id: 'R-STAB-GM-LOW-01', version: 1, kind: 'tune', severity: 'red', inputs: { axis: gmLow.axis, gm: +gmLow.gmDb!.toFixed(1), red: SB.gm.red, src: gmLow.source }, tab: 'pid', priority: 6, ...pidChange(inp, 'pi', 'P', -1, pid.gains) });
+
   // ---------- знание о борте: отключённые правила, правила «с осторожностью» ----------
   const off = new Set([...(A.disabledRules ?? []), ...(inp.board?.disabledRules ?? [])]);
   c.out = c.out.filter((a) => !off.has(a.id));
@@ -273,6 +286,7 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     if (a.kind !== 'tune') { a.selected = true; continue; }
     if (mech) { a.deferred = 'mechanics-first'; continue; }
     if (a.caution) { a.deferred = 'caution'; continue; }
+    if (stabilityBlock && raisesPD(a)) { a.deferred = 'stability'; continue; }
     if (Object.keys(a.changes).some((k) => used.has(k))) { a.deferred = 'same-param'; continue; }
     if (n >= A.maxChanges) { a.deferred = 'max-changes'; continue; }
     if (a.safety && nSafety >= A.maxSafetyChanges) { a.deferred = 'one-risky'; continue; }
@@ -285,6 +299,11 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
   const from: Record<string, number> = {}, to: Record<string, number> = {};
   for (const a of c.out) if (a.selected && a.kind === 'tune') { Object.assign(from, a.from); Object.assign(to, a.changes); }
   return { advice: c.out, from, to };
+}
+
+/** совет поднимает P или D (напрямую или слайдером Simplified) */
+function raisesPD(a: Advice): boolean {
+  return Object.entries(a.changes).some(([k, v]) => /^(p|d)_(roll|pitch|yaw)$|^d_(max|min)_|^simplified_(master_multiplier|d_gain|pi_gain|d_max_gain|dmax_gain)$/.test(k) && v > (a.from[k] ?? v));
 }
 
 /** вход советчика из результатов анализа (общий для воркера и тестов) */

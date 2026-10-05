@@ -113,7 +113,10 @@
       "CHIRP",
       "PASSTHRU",
       "FPVANGLEMIX",
-      "HEADADJ"
+      "HEADADJ",
+      "ALTHOLD",
+      "POSHOLD",
+      "AUTOPILOT"
     ],
     "histBinPct": 5,
     "centerDeflection": 0.1,
@@ -132,6 +135,40 @@
       {
         "version": "1.0",
         "why": "стартовые: на 8 логах (2026.6.1 и 4.5.2) формула Actual из заголовка даёт записанный setpoint на стоячем стике с ошибкой ≈ округления (0.25–0.5 °/с СКЗ); расхождения — только в HEADFREE/GPS Rescue и при быстрых движениях стика (сглаживание RC)"
+      },
+      {
+        "version": "1.3",
+        "was": [
+          "ANGLE",
+          "HORIZON",
+          "HEADFREE",
+          "GPSRESCUE",
+          "GPSHOME",
+          "GPSHOLD",
+          "FAILSAFE",
+          "CHIRP",
+          "PASSTHRU",
+          "FPVANGLEMIX",
+          "HEADADJ"
+        ],
+        "now": [
+          "ANGLE",
+          "HORIZON",
+          "HEADFREE",
+          "GPSRESCUE",
+          "GPSHOME",
+          "GPSHOLD",
+          "FAILSAFE",
+          "CHIRP",
+          "PASSTHRU",
+          "FPVANGLEMIX",
+          "HEADADJ",
+          "ALTHOLD",
+          "POSHOLD",
+          "AUTOPILOT"
+        ],
+        "why": "имена битов flightModeFlags теперь по версии прошивки (раньше — порядок BF 3.x: на 4.5.2 исключались ANTIGRAVITY/BEEPERON/LEDLOW/OSD вместо HEADFREE, на 2026.6.1 — не GPSRESCUE); добавлены режимы удержания 2025.12+",
+        "by": "наблюдение (C: сверка rc_modes.h)"
       }
     ]
   },
@@ -406,6 +443,39 @@
         "version": "1.3",
         "why": "раздел добавлен (E2.2): классы бортов; переопределений пока нет — данных по другим классам нет",
         "by": "наблюдение"
+      }
+    ]
+  },
+  "chirp": {
+    "_comment": "Частотная характеристика и идентификация по chirp (C): sysid/frf.ts, sysid/chirp.ts.",
+    "windowS": 1,
+    "_unitWindow": "окно Уэлча, с (шаг по частоте ≈ 1/windowS Гц)",
+    "minCoh": 0.6,
+    "_unitCoh": "когерентность, ниже которой точкам не верим (подгонка модели, АЧХ на графике бледная)",
+    "marginCoh": 0.8,
+    "_unitMarginCoh": "запасы устойчивости выдаются, только если когерентность у частоты среза ≥ marginCoh",
+    "fitFMin": 1,
+    "fitFMax": 50,
+    "_unitFit": "полоса подгонки модели по АЧХ/ФЧХ, Гц: выше ~50 Гц модель на 500 Гц (sysid.decimHz) расходится с логом 2 кГц по фазе (проверено на синтетике)",
+    "minChirpS": 5,
+    "_unitMinChirp": "минимум секунд chirp по оси для анализа",
+    "pm": {
+      "green": 45,
+      "red": 30,
+      "_unit": "запас по фазе, градусы: меньше red — близко к раскачке"
+    },
+    "gm": {
+      "green": 6,
+      "red": 3,
+      "_unit": "запас по амплитуде, дБ"
+    },
+    "parts": 4,
+    "_unitParts": "на сколько групп (через одно окно) делить окна Уэлча для полосы прогноза модели по chirp",
+    "_history": [
+      {
+        "version": "1.3",
+        "why": "раздел добавлен (C)",
+        "by": "наблюдение (синтетика tests/chirp.test.ts)"
       }
     ]
   }

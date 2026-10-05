@@ -2,6 +2,7 @@
 // Его вызывает воркер; его же вызывают тесты и регрессионные случаи (tests/cases): что
 // видит пользователь, то и проверяется.
 
+import cfg from '../config/analysis.json';
 import { activeClass, classInfo } from '../config/classes';
 import { AdvisorResult, BoardKnowledge, advisorInputFrom, runAdvisor } from '../advisor/advisor';
 import { col } from '../decoder/decoder';
@@ -10,6 +11,7 @@ import { FilterContext, FilterParams, contextFromHeader, paramsFromHeader } from
 import { PidResult, analyzePid } from '../pid/analyze';
 import { PidGains, gainsFromHeader, simplifiedFromHeader } from '../pid/gains';
 import { AxisForecast, Sysid, forecastAxis, gainsRatio, identify } from '../sysid/predict';
+import { ChirpResult, analyzeChirp, compareModels } from '../sysid/chirp';
 import { SessionSnapshot, buildSnapshot } from '../sessions/snapshot';
 import { LogContext } from './context';
 import { FlightMask, buildFlightMask } from './flightMask';
@@ -27,8 +29,10 @@ export interface Analysis {
   pid: PidResult | null;
   /** манёвры для протокола тестового полёта (A2) */
   maneuvers: ManeuverCount;
-  /** модель оси для прогноза PID (null — не построена) */
+  /** модель оси для прогноза PID (null — не построена); по chirp, если он был (C) */
   sysid: Sysid | null;
+  /** частотные характеристики, запасы, chirp (C); null — не посчитано */
+  chirp: ChirpResult | null;
   cards: Card[];
 }
 
@@ -59,9 +63,32 @@ export function analyzeLog(c: LogContext, range: { t0: number; t1: number } | nu
       onError('sysid', e);
     }
   }
+  let chirp: ChirpResult | null = null;
+  try {
+    chirp = analyzeChirp(c, fm.mask);
+    // модель по chirp — вместо модели по step response для своей оси; сравнение — для экрана
+    if (chirp.models.length) {
+      const base = sysid ?? { axes: [], t: [] };
+      for (const m of chirp.models) {
+        const old = base.axes.find((x) => x.axis === m.axis) ?? null;
+        chirp.cmp.push(compareModels(old, m));
+        if (m.ok) {
+          const mm = { ...m, source: 'chirp' as const };
+          const k = base.axes.findIndex((x) => x.axis === m.axis);
+          if (k >= 0) base.axes[k] = mm;
+          else base.axes.push(mm);
+        }
+      }
+      if (!base.t.length) base.t = Array.from({ length: Math.round(cfg.pid.respS * cfg.sysid.decimHz) }, (_, i) => i / cfg.sysid.decimHz);
+      base.axes.sort((a, b) => a.axis - b.axis);
+      sysid = base;
+    }
+  } catch (e) {
+    onError('chirp', e);
+  }
   const cards = buildSummary(c, fm, nz, h, meta, filters?.base ?? null, pid);
   const maneuvers = countManeuvers(c, fm.mask);
-  return { c, fm, nz, h, filters, pid, maneuvers, sysid, cards };
+  return { c, fm, nz, h, filters, pid, maneuvers, sysid, chirp, cards };
 }
 
 /** советы + ожидаемый эффект советов по фильтрам (точная модель, как в песочнице) */
@@ -69,6 +96,8 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
   const { c, nz, h, filters: f } = a;
   const inp = advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header));
   if (board) inp.board = board;
+  // запасы устойчивости — только те, которым можно верить (когерентность у среза)
+  inp.stability = (a.chirp?.axes ?? []).filter((x) => x.marginsOk && x.margins?.crossHz).map((x) => ({ axis: x.axis, pmDeg: x.margins!.pmDeg, gmDb: x.margins!.gmDb, crossHz: x.margins!.crossHz!, source: x.source }));
   const res = runAdvisor(inp, override);
   res.cls = classInfo(activeClass());
   // прогноз PID по модели оси для советов, меняющих PID или фильтры

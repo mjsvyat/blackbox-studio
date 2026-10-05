@@ -96,6 +96,15 @@ export const PARAMS: ParamDef[] = [
   ...rateAxis('roll', 'Ролл'),
   ...rateAxis('pitch', 'Питч'),
   ...rateAxis('yaw', 'Яв'),
+  // chirp (C): cli/settings.c и pid.c BF 2026.6.1; есть только в сборке с USE_CHIRP (2025.12+)
+  { name: 'chirp_lag_freq_hz', min: 0, max: 255, def: 3, unit: 'Гц', since: V2025_12, label: 'Chirp: фазовый корректор, нижняя частота', help: 'chirp-wizard' },
+  { name: 'chirp_lead_freq_hz', min: 0, max: 255, def: 30, unit: 'Гц', since: V2025_12, label: 'Chirp: фазовый корректор, верхняя частота', help: 'chirp-wizard' },
+  { name: 'chirp_amplitude_roll', min: 0, max: 500, def: 230, unit: '°/с', since: V2025_12, label: 'Chirp: амплитуда, ролл', help: 'chirp-wizard' },
+  { name: 'chirp_amplitude_pitch', min: 0, max: 500, def: 230, unit: '°/с', since: V2025_12, label: 'Chirp: амплитуда, питч', help: 'chirp-wizard' },
+  { name: 'chirp_amplitude_yaw', min: 0, max: 500, def: 180, unit: '°/с', since: V2025_12, label: 'Chirp: амплитуда, яв', help: 'chirp-wizard' },
+  { name: 'chirp_frequency_start_deci_hz', min: 1, max: 1000, def: 2, unit: '0.1 Гц', since: V2025_12, label: 'Chirp: начальная частота', help: 'chirp-wizard' },
+  { name: 'chirp_frequency_end_deci_hz', min: 1, max: 10000, def: 6000, unit: '0.1 Гц', since: V2025_12, label: 'Chirp: конечная частота', help: 'chirp-wizard' },
+  { name: 'chirp_time_seconds', min: 1, max: 255, def: 20, unit: 'с', since: V2025_12, label: 'Chirp: длительность', help: 'chirp-wizard' },
 ];
 
 export const paramByName = new Map(PARAMS.map((p) => [p.name, p]));

@@ -1,5 +1,6 @@
 // Сообщения между UI и воркером.
 
+import type { FreqView } from '../sysid/chirp';
 import type { ClassInfo } from '../config/classes';
 import type { Card } from '../analysis/summary';
 import type { Anomaly, LinkStats, ModeSpan, MotorStats, PowerStats, ThrottleDetail } from '../analysis/health';
@@ -53,7 +54,9 @@ export interface PidPayload extends PidResult {
   fwCode: number;
   simplified: { s: SimplifiedPids; dExtraName: string } | null;
   /** модель оси (этап 7): кривая модели на текущих коэффициентах и качество */
-  model: { t: number[]; axes: (AxisForecast & { tauMs: number; plantDelayMs: number; pFit: number; dFit: number; fFit: number })[] } | null;
+  model: { t: number[]; axes: (AxisForecast & { tauMs: number; plantDelayMs: number; pFit: number; dFit: number; fFit: number; source: 'step' | 'chirp' })[] } | null;
+  /** частотная характеристика, запасы, chirp (C) */
+  freq: FreqView | null;
 }
 
 export interface AdvicePayload extends AdvisorResult {

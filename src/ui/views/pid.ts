@@ -10,6 +10,7 @@ import { helpBtn } from '../help';
 import { ensurePid, requestPidForecast, state, subscribe } from '../store';
 import { SimplifiedPids, gainsToCli, simplifiedPids, simplifiedToCli } from '../../pid/gains';
 import { cliDiff } from '../../params/registry';
+import { freqSection } from './freq';
 
 export function pidView(track: (d: () => void) => void): HTMLElement {
   const P = state.pid;
@@ -76,6 +77,10 @@ export function pidView(track: (d: () => void) => void): HTMLElement {
       : h('table', { class: 'grid' }, h('tbody', null, Object.entries(T.pid.simNames).map(([k, label]) => h('tr', null, h('td', null, label), h('td', null, fmt((sp.s as unknown as Record<string, number>)[k] / 100, 2)))))));
   out.append(h('div', { class: 'two' }, gainsBox, simBox));
   out.append(forecastSection(track));
+  const freqBox = h('div');
+  const drawFreq = (): void => { freqBox.replaceChildren(freqSection(track, drawFreq)); };
+  drawFreq();
+  out.append(freqBox);
   return out;
 }
 
