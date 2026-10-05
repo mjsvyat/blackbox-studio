@@ -14,6 +14,7 @@ import { buildCaseFiles, caseFolderName } from '../incidents/caseExport';
 import { zip } from '../incidents/zip';
 import { casePlots, dataUri } from './charts/png';
 import { reportHtml } from '../report/report';
+import { campaignExport, campaignHtml } from '../report/campaignReport';
 import type { AxisForecast } from '../sysid/predict';
 import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
@@ -625,6 +626,15 @@ function download(name: string, text: string, type: string): void {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+/** экспорт кампании одним HTML-файлом с данными внутри (A5) */
+export function exportCampaign(c: Campaign): void {
+  const p = state.projects.find((x) => x.id === c.projectId);
+  if (!p) return;
+  const x = campaignExport(c, p, state.sessions, state.incidents, normalizeProfile(p.profile).cls ?? DEFAULT_CLASS);
+  // имя латиницей: кириллицу в имени скачиваемого файла Chromium местами отбрасывает («download»)
+  download(`campaign-${c.goal}-${x.exportedAt.slice(0, 10)}.html`, campaignHtml(x), 'text/html');
 }
 
 /** отчёт по снимку; before — «было» для блока сравнения; без снимка — по открытому логу */

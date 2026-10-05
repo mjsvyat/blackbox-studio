@@ -9,7 +9,13 @@ import { lineChart } from '../charts/line';
 import { fmt, h } from '../dom';
 import { lastErase } from '../fcStore';
 import { helpBtn } from '../help';
-import { createCampaign, deleteCampaign, ensureOpenSnap, loadSessions, set, setMark, state, updateCampaign } from '../store';
+import { createCampaign, deleteCampaign, ensureOpenSnap, exportCampaign, loadSessions, set, setMark, state, updateCampaign } from '../store';
+import { Proposal, accuracy, historyEntry, proposeThresholds } from '../../campaigns/learning';
+import cfg from '../../config/analysis.json';
+import { DEFAULT_CLASS } from '../../config/classes';
+import type { Project } from '../../sessions/db';
+import { normalizeProfile } from '../../sessions/profile';
+import type { Campaign } from '../../campaigns/campaign';
 
 let loaded = false;
 let boardSel: string | null = null;
@@ -69,6 +75,7 @@ export function campaignView(track: (d: () => void) => void): HTMLElement {
     h('div', { class: 'row' },
       h('h3', { style: 'margin:0;flex:1' }, cur.title || T.camp.goals[cur.goal], h('span', { class: 'muted small', style: 'font-weight:normal' }, ` · ${T.camp.goals[cur.goal]} · ${when(cur.createdAt)}`)),
       free.length ? add : '',
+      h('button', { class: 'btn small', title: T.learn.exportHint, onclick: () => exportCampaign(cur) }, T.learn.exportBtn), helpBtn('campaign-export'),
       h('button', { class: 'btn small', onclick: () => updateCampaign({ ...cur, status: cur.status === 'open' ? 'closed' : 'open' }) }, cur.status === 'open' ? T.camp.close : T.camp.reopen),
       h('button', { class: 'btn small', onclick: () => { if (confirm(T.camp.delQ)) deleteCampaign(cur.id); } }, T.camp.del)),
     its.length ? '' : h('p', { class: 'muted' }, T.camp.empty)));
@@ -89,6 +96,9 @@ export function campaignView(track: (d: () => void) => void): HTMLElement {
     if (ser.motorTemp.some((v) => Number.isFinite(v))) chart(T.camp.ch.temp, ser.motorTemp, '--red', 'campaign-metrics');
     out.append(h('h3', null, T.camp.chartsTitle, helpBtn('campaign-metrics')), grid);
   }
+
+  // точность прогнозов и правил, предложения порогов (A3–A4)
+  if (its.length > 1) out.append(accuracyPanel(cur), proposalsPanel(cur, project));
 
   // следующий полёт: протокол и чек-лист
   out.append(nextFlight(cur.goal, project.uid ?? null));
@@ -173,4 +183,66 @@ function iterCard(it: Iteration, c: Parameters<typeof setMark>[0]): HTMLElement 
       h('div', null, h('b', null, T.camp.result), result)),
     h('details', null, h('summary', null, T.camp.protoTitle, ' ', it.protocol.ok ? '✓' : `✗ ${it.protocol.todo.length}`), protoBlock(it.protocol)),
     h('div', { class: 'row', style: 'margin-top:6px' }, h('span', null, T.camp.markTitle), temp, feel));
+}
+
+function accuracyPanel(c: Campaign): HTMLElement {
+  const L = T.learn;
+  const ss = state.sessions.filter((s) => s.projectId === c.projectId && c.sessionIds.includes(s.id));
+  const a = accuracy(ss, state.incidents.filter((i) => i.projectId === c.projectId));
+  const box = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, L.accTitle, helpBtn('campaign-accuracy')), h('p', { class: 'muted small' }, L.accIntro));
+  if (!a.pairs && !a.rules.length) {
+    box.append(h('div', { class: 'muted' }, L.accNone));
+    return box;
+  }
+  box.append(h('div', { class: 'muted small' }, L.pairs(a.pairs)));
+  box.append(h('h4', null, L.metricsTitle));
+  box.append(a.metrics.length
+    ? h('table', { class: 'grid small' }, h('thead', null, h('tr', null, [L.colMetric, L.colN, L.colHit, L.colErr].map((x) => h('th', null, x)))),
+        h('tbody', null, a.metrics.map((m) => h('tr', null, h('td', null, T.ses.m[m.id] ?? m.id), h('td', null, String(m.n)),
+          h('td', { class: m.inBand / m.n >= 0.5 ? 'good-text' : 'warn-text' }, `${m.inBand} / ${m.n}`), h('td', null, `${fmt(m.meanErrPct, 0)} %`)))))
+    : h('div', { class: 'muted small' }, L.noPred));
+  box.append(h('h4', null, L.rulesTitle));
+  box.append(a.rules.length
+    ? h('table', { class: 'grid small' }, h('thead', null, h('tr', null, [L.colRule, L.colApplied, L.colBetter, L.colWorse, L.colSame, L.colInc].map((x) => h('th', null, x)))),
+        h('tbody', null, a.rules.map((r) => h('tr', null,
+          h('td', null, h('code', null, r.rule), ' ', T.adv.rules[r.rule]?.title ?? '', r.caution ? h('span', { class: 'badge yellow', style: 'margin-left:6px' }, L.caution) : ''),
+          h('td', null, String(r.applied)), h('td', { class: 'good-text' }, String(r.better)), h('td', { class: r.worse ? 'warn-text' : '' }, String(r.worse)), h('td', null, String(r.same)),
+          h('td', null, r.incidents.join(', ') || '—')))))
+    : h('div', { class: 'muted small' }, L.noRules));
+  return box;
+}
+
+function proposalsPanel(c: Campaign, project: Project): HTMLElement {
+  const L = T.learn;
+  const cls = normalizeProfile(project.profile).cls ?? DEFAULT_CLASS;
+  const ps = proposeThresholds(c, state.sessions, state.incidents.filter((i) => i.projectId === c.projectId), cls);
+  const box = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, L.propTitle, helpBtn('threshold-proposals')), h('p', { class: 'muted small' }, L.propIntro));
+  if (!ps.length) {
+    box.append(h('div', { class: 'muted' }, L.propNone(cfg.learning.minEvidence)));
+    return box;
+  }
+  for (const p of ps) box.append(proposalCard(p, c));
+  box.append(h('details', null, h('summary', null, L.howTitle), h('ol', { class: 'small' }, L.how.map((x) => h('li', null, x)))));
+  return box;
+}
+
+function proposalCard(p: Proposal, c: Campaign): HTMLElement {
+  const L = T.learn;
+  const t = L.prop[p.id];
+  const show = (v: number | string[]): string => (Array.isArray(v) ? `[${v.join(', ')}]` : String(v));
+  const why = p.id === 'rule-disable' ? t.why(p.evidence.length, p.rules[0]) : t.why(p.evidence.length, p.was as number, p.now as number);
+  const hist = JSON.stringify(historyEntry(p, c.title || T.camp.goals[c.goal], cfg.version), null, 2);
+  const ev = (rows: Proposal['evidence']): HTMLElement => h('table', { class: 'grid small' }, h('tbody', null, rows.map((e) => {
+    const s = state.sessions.find((x) => x.id === e.sessionId);
+    return h('tr', null, h('td', null, when(e.when)), h('td', { class: 'muted' }, e.file), h('td', null, Number.isFinite(e.value) ? `${t.value}: ${fmt(e.value, 1)}` : ''),
+      h('td', null, e.motorTemp === null ? '' : L.motor(T.camp.temps[e.motorTemp])), h('td', null, s && !c.sessionIds.includes(s.id) ? h('span', { class: 'muted small' }, T.camp.notInCampaign) : ''));
+  })));
+  const copyBtn = h('button', { class: 'btn small', onclick: (e: Event) => { void navigator.clipboard?.writeText(hist).then(() => { (e.target as HTMLElement).textContent = L.copied; }); } }, L.copy);
+  return h('div', { class: 'panel proposal' },
+    h('b', null, t.title), h('p', null, why),
+    h('div', null, `${L.path}: `, h('code', null, p.path), ` · ${L.wasNow(show(p.was), show(p.now))}`),
+    h('h4', null, L.evidence), ev(p.evidence),
+    h('h4', null, L.affected), p.affected.length ? ev(p.affected) : h('div', { class: 'muted small' }, L.affectedNone),
+    h('div', { class: 'muted small' }, `${L.rules}: ${p.rules.join(', ')}`, p.incidents.length ? ` · ${L.incidents}: ${p.incidents.join(', ')}` : ''),
+    h('details', null, h('summary', null, L.history, ' '), h('pre', { class: 'cli small' }, hist), copyBtn));
 }

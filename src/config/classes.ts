@@ -79,3 +79,11 @@ export function setBoardClass(cls: string | null | undefined): ClassInfo {
 export function activeClass(): BoardClass {
   return active;
 }
+
+/** значение порога для класса (переопределение класса, иначе база) — не зависит от активного класса */
+export function classValue(cls: string | null | undefined, path: string): unknown {
+  const get = (o: unknown, ks: string[]): unknown => ks.reduce<unknown>((v, k) => (isObj(v) ? v[k] : undefined), o);
+  const ks = path.split('.');
+  const ov = get(list()[classInfo(cls).cls].overrides, ks);
+  return structuredClone(ov !== undefined ? ov : get(BASE, ks));
+}
