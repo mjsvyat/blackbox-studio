@@ -21,17 +21,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           lfs: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
 
       - name: Кэш node_modules (по package-lock.json)
         id: nm
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: node_modules
           key: nm-${{ runner.os }}-node${{ hashFiles('.nvmrc') }}-${{ hashFiles('package-lock.json') }}
@@ -54,7 +54,7 @@ jobs:
         run: npm run build
 
       - name: dist/index.html — артефакт (скачать, распаковать, открыть двойным кликом)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: blackbox-studio-dist
           path: dist/index.html
