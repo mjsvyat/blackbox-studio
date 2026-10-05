@@ -6,6 +6,8 @@ import { MSP, MspFrame, MspParser, crc8DvbS2, encodeV1, encodeV2 } from '../src/
 import { FcClient, FcError, READ_CMDS, WRITE_CMDS, armingDisableList, checkCompat, rollbackLines } from '../src/fc/client';
 import { boardNumbers, cliAllowed, effectiveValues, headerVsBoard, parseConfig, setResult } from '../src/fc/cli';
 import { FakeFc } from '../src/fc/emulator';
+import { PARAMS, paramByName } from '../src/params/registry';
+import { gainsToCli, simplifiedToCli } from '../src/pid/gains';
 import { scanFile } from '../src/decoder/scan';
 import { SMALL_DUMP, hasFixture } from './helpers';
 
@@ -223,12 +225,22 @@ describe('CLI: настройки с борта и применение (B4–B5
     expect(fc.saved.d_roll).toBe('30');
   });
 
-  it('неизвестный параметр — ничего не меняется', async () => {
+  it('параметр не из справочника — отказ до входа в CLI', async () => {
     const fc = new FakeFc();
     const c = new FcClient(fc);
-    const r = await c.applySets(await c.info(), ['set no_such_param = 1']);
+    await expect(c.applySets(await c.info(), ['set no_such_param = 1'])).rejects.toMatchObject({ code: 'forbidden' });
+    expect(fc.cliMode).toBe(false);
+    expect(fc.cliReceived).toEqual([]);
+  });
+
+  it('параметр из справочника, которого нет в этой сборке (chirp без USE_CHIRP), — ничего не меняется', async () => {
+    const fc = new FakeFc();
+    const c = new FcClient(fc);
+    const r = await c.applySets(await c.info(), ['set d_roll = 33', 'set chirp_time_seconds = 20']);
     expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/chirp_time_seconds/);
     expect(fc.cliReceived.filter((l) => l.startsWith('set'))).toEqual([]);
+    expect(fc.saved.d_roll).toBe('30');
   });
 
   it('заармлен — в CLI не входим вообще', async () => {
@@ -249,5 +261,41 @@ describe('CLI: настройки с борта и применение (B4–B5
     const c = new FcClient(fc);
     await expect(c.applySets(await c.info(), ['motor 0 1500'])).rejects.toMatchObject({ code: 'forbidden' });
     expect(fc.cliMode).toBe(false);
+  });
+
+  it('белый список CLI: set — только параметры справочника и значения своего типа', async () => {
+    // параметры вне справочника — даже безобидные на вид — не пишем
+    for (const l of ['set motor_pwm_protocol = DSHOT600', 'set mixer_type = LEGACY', 'set dshot_bidir = OFF', 'set motor_poles = 12', 'set craft_name = test', 'set serialrx_provider = CRSF', 'set blackbox_sample_rate = 1/2'])
+      expect(cliAllowed(l), l).toBe(false);
+    // значение не своего типа
+    for (const l of ['set gyro_lpf1_type = FOO', 'set rates_type = 3', 'set d_roll = ON', 'set d_roll = 1e3'])
+      expect(cliAllowed(l), l).toBe(false);
+    // регистр слова перечисления не важен; отрицательные и дробные числа — да
+    for (const l of ['set gyro_lpf1_type = pt1', 'set simplified_pids_mode = RPY', 'set p_roll = 45', 'set roll_expo = 0'])
+      expect(cliAllowed(l), l).toBe(true);
+    // get — только чтение, разрешён и для параметров вне справочника
+    expect(cliAllowed('get motor_pwm_protocol')).toBe(true);
+    // applySets не входит в CLI, если хоть одна строка вне справочника
+    const fc = new FakeFc();
+    const c = new FcClient(fc);
+    await expect(c.applySets(await c.info(), ['set d_roll = 30', 'set motor_pwm_protocol = DSHOT150'])).rejects.toMatchObject({ code: 'forbidden' });
+    expect(fc.cliMode).toBe(false);
+    expect(fc.cliReceived).toEqual([]);
+  });
+
+  it('всё, что умеют генерировать советчик, песочницы и перенос, проходит белый список', () => {
+    const names = new Set<string>([
+      ...Object.keys(gainsToCli({ P: [45, 47, 45], I: [80, 84, 80], D: [30, 34, 0], F: [120, 125, 120], dExtra: [40, 46, 0], dExtraKind: 'd_max' })),
+      ...Object.keys(gainsToCli({ P: [45, 47, 45], I: [80, 84, 80], D: [30, 34, 0], F: [120, 125, 120], dExtra: [40, 46, 0], dExtraKind: 'd_min' })),
+      ...Object.keys(simplifiedToCli({ mode: 2, master: 100, pi: 100, i: 100, d: 100, dExtra: 100, ff: 100, pitchD: 100, pitchPi: 100 }, 'simplified_d_max_gain')),
+      ...Object.keys(simplifiedToCli({ mode: 2, master: 100, pi: 100, i: 100, d: 100, dExtra: 100, ff: 100, pitchD: 100, pitchPi: 100 }, 'simplified_dmax_gain')),
+      ...PARAMS.map((p) => p.name),
+    ]);
+    for (const n of names) {
+      const def = paramByName.get(n);
+      expect(def, n).toBeDefined();
+      const v = def!.options ? def!.options[0] : String(def!.def);
+      expect(cliAllowed(`set ${n} = ${v}`), n).toBe(true);
+    }
   });
 });
