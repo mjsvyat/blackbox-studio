@@ -198,3 +198,10 @@ pre.cli { background: var(--bg3); padding: 6px 8px; border-radius: 6px; margin: 
 table.proto tr.bad td:first-child { color: var(--red); }
 table.proto tr.ok td:first-child { color: var(--green); }
 .grid3 > div > b:first-child { display: block; margin-bottom: 4px; }
+
+/* видео */
+.video-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; margin-top: 8px; }
+.video-wrap { position: relative; flex: 1 1 520px; max-width: 760px; }
+.video-el { width: 100%; display: block; background: #000; border-radius: 6px; }
+.video-ov { position: absolute; left: 0; top: 0; pointer-events: none; }
+.video-ctl { flex: 0 1 340px; display: flex; flex-direction: column; gap: 8px; }

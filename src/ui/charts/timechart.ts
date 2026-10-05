@@ -32,6 +32,33 @@ export interface TimeChartSpec {
 }
 
 const live = new Set<TimeChart>();
+
+// Общий курсор времени для внешних слушателей (видео): мышь над графиками → время лога;
+// снаружи (видео играет) → курсор на графиках. uPlot сам синхронизирует курсор между графиками.
+const cursorListeners = new Set<(t: number) => void>();
+let externalCursor = false;
+let lastEmitted = NaN;
+export function onCursorTime(cb: (t: number) => void): () => void {
+  cursorListeners.add(cb);
+  return () => cursorListeners.delete(cb);
+}
+/** поставить курсор графиков на время t (с); вне видимого окна — сдвинуть окно */
+export function setCursorTime(t: number): void {
+  const charts = [...live].filter((c) => !c.isOverview);
+  if (!charts.length || !state.info) return;
+  const v = state.view ?? { t0: 0, t1: state.info.durationS };
+  if (t < v.t0 || t > v.t1) {
+    const w = v.t1 - v.t0;
+    const t0 = Math.max(0, Math.min(state.info.durationS - w, t - w / 2));
+    set({ view: { t0, t1: t0 + w } });
+  }
+  externalCursor = true;
+  try {
+    charts[0].cursorAt(t);
+  } finally {
+    externalCursor = false;
+  }
+}
 let shiftDown = false;
 window.addEventListener('keydown', (e) => { if (e.key === 'Shift') shiftDown = true; });
 window.addEventListener('keyup', (e) => { if (e.key === 'Shift') shiftDown = false; });
@@ -63,6 +90,17 @@ export class TimeChart {
       this.build();
       this.ro.observe(this.plotBox);
     });
+  }
+
+  get isOverview(): boolean {
+    return !!this.spec.overview;
+  }
+
+  cursorAt(t: number): void {
+    const u = this.u;
+    if (!u) return;
+    const left = u.valToPos(t, 'x');
+    if (Number.isFinite(left)) u.setCursor({ left, top: Math.max(0, u.cursor.top ?? 10) });
   }
 
   destroy(): void {
@@ -124,6 +162,13 @@ export class TimeChart {
       ],
       hooks: {
         setSelect: [(u) => this.onSelect(u)],
+        setCursor: [(u) => {
+          if (externalCursor || this.spec.overview || u.cursor.left === undefined || u.cursor.left < 0) return;
+          const t = u.posToVal(u.cursor.left, 'x');
+          if (t === lastEmitted) return;
+          lastEmitted = t;
+          for (const cb of cursorListeners) cb(t);
+        }],
         drawClear: [(u) => this.drawUnder(u)],
         draw: [(u) => this.drawOver(u)],
       },

@@ -70,6 +70,8 @@ export interface AppState {
   pidBusy: boolean;
   /** полётник по USB */
   fc: FcUi;
+  /** видео: счётчик перерисовки (само состояние — в ui/video.ts) */
+  videoTick: number;
   /** «это новый борт или существующий?» — ждёт ответа пилота перед сохранением сессии */
   boardAsk: { reason: AskReason; candidates: string[]; key: BoardKey } | null;
   /** кампании настройки (A1) и выбранная */
@@ -122,6 +124,7 @@ export const state: AppState = {
   pidForecast: null,
   pidBusy: false,
   fc: initialFc(),
+  videoTick: 0,
   boardAsk: null,
   campaigns: [],
   campaignId: null,
@@ -350,6 +353,17 @@ function db(): Promise<SessionStore> {
 export async function loadSessions(): Promise<void> {
   const st = await db();
   set({ projects: await st.projects(), sessions: await st.sessions(), incidents: await st.incidents(), campaigns: await st.campaigns() });
+}
+
+/** сдвиг видео — в сессию открытого лога, если она сохранена */
+export async function saveVideoToSession(v: { name: string; size: number; offsetS: number }): Promise<boolean> {
+  const snap = state.info ? { fileName: state.fileName ?? '', logIndex: state.info.index, datetime: state.info.datetime } : null;
+  if (!snap) return false;
+  const st = await db();
+  const r = (await st.sessions()).find((x) => x.snap.source.fileName === snap.fileName && x.snap.source.logIndex === snap.logIndex && x.snap.source.datetime === snap.datetime);
+  if (!r) return false;
+  await st.updateSession({ ...r, video: v });
+  return true;
 }
 
 /** запись в полётник — в журнал последней сессии борта; false — сессий борта нет */

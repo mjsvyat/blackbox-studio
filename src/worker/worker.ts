@@ -2,6 +2,7 @@
 // Web Worker: декодирование, анализ, выдача рядов для графиков. Весь лог живёт
 // здесь; в UI уходят только спектры, метрики и прореженные куски рядов.
 
+import { rateMagnitude } from '../video/sync';
 import { LogContext, buildContext } from '../analysis/context';
 import { idxAt } from '../analysis/flightMask';
 import { byThrottle } from '../analysis/health';
@@ -289,6 +290,8 @@ function buildSeries(c: LogContext): void {
     put(`F${a}`, col(log, `axisF[${a}]`));
   }
   s.set('thr', c.thrPct);
+  // модуль угловой скорости — для синхронизации с видео (движение кадра) и оверлея
+  s.set('rate', rateMagnitude([0, 1, 2].map((a) => col(log, `gyroADC[${a}]`)), c.n));
   c.motorNorm.forEach((m, i) => {
     const a = new Float32Array(c.n);
     for (let k = 0; k < c.n; k++) a[k] = m[k] * 100;

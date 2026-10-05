@@ -43,6 +43,8 @@ export interface SessionRecord {
   snap: SessionSnapshot;
   /** записи в полётник по USB после этого полёта: бэкап «до», что применено, результат (B5) */
   fcLog?: FcLogEntry[];
+  /** видео к этому полёту: файл (имя, размер) и сдвиг «видео = лог + offsetS» (D) */
+  video?: { name: string; size: number; offsetS: number };
 }
 
 export interface FcLogEntry {
