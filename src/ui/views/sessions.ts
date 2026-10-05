@@ -12,9 +12,10 @@ import { fmt, fmtTime, h } from '../dom';
 import { helpBtn } from '../help';
 import { incidentForm, journal, profilePanel, rollbackPanel } from './incidents';
 import {
-  deleteProject, deleteSession, exportProject, exportReport, importProject, loadSessions, renameProject, saveCurrentSession, set, state,
+  deleteProject, deleteSession, exportProject, exportReport, importProject, loadSessions, moveFcToNewFrame, renameProject, resolveBoardAsk, saveCurrentSession, set, state,
   updateSessionNotes,
 } from '../store';
+import { legacyKey } from '../../sessions/boards';
 
 let loaded = false;
 let showDiff = false;
@@ -38,6 +39,7 @@ export function sessionsView(track: (d: () => void) => void): HTMLElement {
       ? h('div', { class: 'row' }, notes, h('button', { class: 'btn primary', disabled: state.sessionsBusy, onclick: () => saveCurrentSession(notes.value) }, state.sessionsBusy ? T.ses.saving : T.ses.save))
       : h('div', { class: 'muted' }, T.ses.noLog),
     h('div', { class: 'muted small', style: 'margin-top:6px' }, T.ses.whatSaved)));
+  if (state.boardAsk) out.append(boardAskPanel());
 
   // ---------- борта и сессии ----------
   const fileIn = h('input', { type: 'file', accept: '.json,application/json', style: 'display:none' }) as HTMLInputElement;
@@ -49,8 +51,13 @@ export function sessionsView(track: (d: () => void) => void): HTMLElement {
     const ss = state.sessions.filter((s) => s.projectId === p.id);
     list.append(h('div', { style: 'margin-top:10px' },
       h('div', { class: 'row' },
-        h('b', { style: 'flex:1' }, p.name, h('span', { class: 'muted small' }, ` · ${ss.length}`)),
+        h('b', { style: 'flex:1' }, p.name, h('span', { class: 'muted small' }, ` · ${ss.length}`),
+          h('span', { class: 'muted small', style: 'font-weight:normal' }, ' · ', p.uid ? T.board.uid(p.uid) : T.board.noUid),
+          p.sameFcAs ? h('span', { class: 'badge', style: 'margin-left:6px' }, T.board.sameFc(state.projects.find((x) => x.id === p.sameFcAs)?.name ?? '?')) : '',
+          p.fcMovedTo ? h('span', { class: 'badge yellow', style: 'margin-left:6px' }, T.board.movedTo(state.projects.find((x) => x.id === p.fcMovedTo)?.name ?? '?')) : '',
+          helpBtn('board-key')),
         h('button', { class: 'btn small', onclick: () => { const n = prompt(T.ses.rename, p.name); if (n) renameProject(p, n); } }, T.ses.rename),
+        p.uid && !p.fcMovedTo ? h('button', { class: 'btn small', onclick: () => { const n = prompt(T.board.moveQ, T.board.moveName(p.name)); if (n) moveFcToNewFrame(p.id, n); } }, T.board.moveBtn) : '',
         h('button', { class: 'btn small', onclick: () => exportProject(p) }, T.ses.export),
         h('button', { class: 'btn small', onclick: () => { if (confirm(T.ses.delProjectQ)) deleteProject(p.id); } }, T.ses.del)),
       h('table', { class: 'grid small' },
@@ -69,6 +76,44 @@ export function sessionsView(track: (d: () => void) => void): HTMLElement {
   const B = state.sessions.find((s) => s.id === state.cmpB);
   if (A && B && A.id !== B.id) out.append(compareBlock(A, B, track));
   return out;
+}
+
+/** «это новый борт или существующий?» — выбор пилота перед сохранением сессии */
+function boardAskPanel(): HTMLElement {
+  const a = state.boardAsk!;
+  const cands = a.candidates.map((id) => state.projects.find((p) => p.id === id)).filter((p): p is NonNullable<typeof p> => !!p);
+  const first = cands[0];
+  const why =
+    a.reason === 'craft-changed' && first ? T.board.askCraft(first.name, a.key.craft)
+    : a.reason === 'legacy' ? T.board.askLegacy(cands.filter((p) => !p.uid).map((p) => `«${p.name}»`).join(', '))
+    : a.reason === 'several' ? T.board.askSeveral
+    : T.board.askNew(a.key.uid, legacyKey(a.key));
+  // по умолчанию: тот же UID с другим именем — «переименовал»; старый борт без UID — «это он»; иначе — новый
+  let pick: 'new' | 'existing' | 'moved' = a.reason === 'new' ? 'new' : 'existing';
+  const name = h('input', { type: 'text', value: a.key.craft || legacyKey(a.key), placeholder: T.board.namePh, style: 'min-width:220px' }) as HTMLInputElement;
+  const sel = h('select', { class: 'btn' }, cands.map((p) => h('option', { value: p.id }, p.name))) as HTMLSelectElement;
+  const opt = (v: typeof pick, label: string, extra: HTMLElement | null): HTMLElement =>
+    h('label', { class: 'row', style: 'margin:4px 0' }, h('input', { type: 'radio', name: 'board-ask', checked: pick === v, onchange: () => { pick = v; } }), label, extra ?? '');
+  const opts: HTMLElement[] = [];
+  if (a.reason === 'craft-changed' && first) {
+    opts.push(opt('existing', T.board.optRenamed, null), opt('moved', T.board.optMoved, null));
+  } else {
+    if (cands.length) opts.push(opt('existing', T.board.optExisting, sel));
+    opts.push(opt('new', T.board.optNew, null));
+  }
+  return h('div', { class: 'panel warn' },
+    h('h3', { style: 'margin-top:0' }, T.board.askTitle, helpBtn('board-key')),
+    h('p', null, why, a.key.uid ? h('span', { class: 'muted small' }, ` (${T.board.uid(a.key.uid)})`) : ''),
+    ...opts,
+    h('div', { class: 'row', style: 'margin-top:8px' }, name,
+      h('button', { class: 'btn primary', onclick: () => {
+        const nm = name.value.trim() || legacyKey(a.key);
+        if (pick === 'new') resolveBoardAsk({ kind: 'new', name: nm });
+        else if (pick === 'moved' && first) resolveBoardAsk({ kind: 'moved', id: first.id, name: nm });
+        else resolveBoardAsk({ kind: 'existing', id: a.reason === 'craft-changed' && first ? first.id : sel.value });
+      } }, T.board.save),
+      h('button', { class: 'btn', onclick: () => resolveBoardAsk({ kind: 'cancel' }) }, T.board.cancel)),
+    h('div', { class: 'muted small' }, T.board.nameHint));
 }
 
 function row(r: SessionRecord): HTMLElement {

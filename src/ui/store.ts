@@ -17,6 +17,7 @@ import type { AxisForecast } from '../sysid/predict';
 import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
 import { FcUi, initialFc } from './fcState';
+import { AskReason, BoardKey, boardFor, boardKeyFromHeader, matchBoard } from '../sessions/boards';
 
 export interface AppState {
   fileName: string | null;
@@ -68,6 +69,8 @@ export interface AppState {
   pidBusy: boolean;
   /** полётник по USB */
   fc: FcUi;
+  /** «это новый борт или существующий?» — ждёт ответа пилота перед сохранением сессии */
+  boardAsk: { reason: AskReason; candidates: string[]; key: BoardKey } | null;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -112,6 +115,7 @@ export const state: AppState = {
   pidForecast: null,
   pidBusy: false,
   fc: initialFc(),
+  boardAsk: null,
 };
 
 const listeners = new Set<Listener>();
@@ -300,13 +304,11 @@ export function ensureAdvice(): void {
   });
 }
 
-/** ключ борта открытого лога — как у проекта (Craft name или плата) */
-const craftKeyOf = (info: { craft: string; board: string }): string => info.craft || info.board || 'Борт';
-
 async function currentBoard(): Promise<BoardKnowledge | null> {
   if (!state.info) return null;
   const st = await db();
-  const p = (await st.projects()).find((x) => x.craftKey === craftKeyOf(state.info!));
+  // только уверенное совпадение (UID + имя); спорные случаи решает пилот при сохранении сессии
+  const p = boardFor(await st.projects(), state.info.header);
   if (!p) return null;
   const ss = await st.sessions(p.id);
   return boardKnowledge(ruleStats(ss, await st.incidents(p.id)), p.profile ?? {}, ss);
@@ -321,7 +323,10 @@ function db(): Promise<SessionStore> {
         if (typeof indexedDB === 'undefined') throw new Error('нет IndexedDB');
         const b = await idbBackend();
         set({ dbPersistent: true });
-        return new SessionStore(b);
+        const st = new SessionStore(b);
+        // проекты до E2.1 (борт = имя/плата): UID из сохранённых заголовков, деление по UID
+        await st.migrate();
+        return st;
       } catch {
         set({ dbPersistent: false });
         return new SessionStore(memoryBackend());
@@ -358,19 +363,64 @@ export async function saveCurrentSession(notes: string): Promise<void> {
       set({ sessionsMsg: 'Этот лог уже сохранён.' });
       return;
     }
-    const key = snap.source.craft || snap.source.board || 'Борт';
-    const p = await st.projectFor(key);
-    const r = await st.saveSession(p.id, snap, notes);
-    await loadSessions();
-    // удобно: последняя сохранённая — «стало», предыдущая этого борта — «было»
-    const list = state.sessions.filter((x) => x.projectId === p.id);
-    const prev = list.filter((x) => x.id !== r.id).pop();
-    set({ cmpB: r.id, cmpA: prev?.id ?? state.cmpA, sessionsMsg: 'Сессия сохранена.' });
+    const key = boardKeyFromHeader(snap.header);
+    const m = matchBoard(await st.projects(), key);
+    if (m.kind === 'ask') {
+      // борт по логу не определить уверенно — спросить пилота (сессия ждёт ответа)
+      pendingSave = { snap, notes };
+      set({ boardAsk: { reason: m.reason, candidates: m.candidates.map((p) => p.id), key } });
+      return;
+    }
+    await finishSave(m.project.id, snap, notes);
   } catch (e) {
     set({ sessionsMsg: `Не удалось сохранить: ${e instanceof Error ? e.message : String(e)}` });
   } finally {
     set({ sessionsBusy: false });
   }
+}
+
+let pendingSave: { snap: SessionSnapshot; notes: string } | null = null;
+
+async function finishSave(projectId: string, snap: SessionSnapshot, notes: string): Promise<void> {
+  const st = await db();
+  const r = await st.saveSession(projectId, snap, notes);
+  await loadSessions();
+  // удобно: последняя сохранённая — «стало», предыдущая этого борта — «было»
+  const list = state.sessions.filter((x) => x.projectId === projectId);
+  const prev = list.filter((x) => x.id !== r.id).pop();
+  set({ cmpB: r.id, cmpA: prev?.id ?? state.cmpA, sessionsMsg: 'Сессия сохранена.' });
+}
+
+/** ответ пилота: новый борт / это существующий / полётник переехал из борта id в новую раму */
+export async function resolveBoardAsk(choice: { kind: 'new'; name: string } | { kind: 'existing'; id: string } | { kind: 'moved'; id: string; name: string } | { kind: 'cancel' }): Promise<void> {
+  const ask = state.boardAsk;
+  const ps = pendingSave;
+  set({ boardAsk: null });
+  pendingSave = null;
+  if (!ask || !ps || choice.kind === 'cancel') return;
+  set({ sessionsBusy: true });
+  try {
+    const st = await db();
+    let pid: string;
+    if (choice.kind === 'new') pid = (await st.createBoard(ask.key, choice.name)).id;
+    else if (choice.kind === 'moved') pid = (await st.adopt(await st.moveFc(choice.id, choice.name), ask.key)).id;
+    else {
+      const p = (await st.projects()).find((x) => x.id === choice.id);
+      if (!p) throw new Error('борт не найден');
+      pid = (await st.adopt(p, ask.key)).id;
+    }
+    await finishSave(pid, ps.snap, ps.notes);
+  } catch (e) {
+    set({ sessionsMsg: `Не удалось сохранить: ${e instanceof Error ? e.message : String(e)}` });
+  } finally {
+    set({ sessionsBusy: false });
+  }
+}
+
+/** явная операция: полётник борта id переехал в новую раму → новый борт */
+export async function moveFcToNewFrame(id: string, name: string): Promise<void> {
+  await (await db()).moveFc(id, name);
+  await loadSessions();
 }
 
 export async function updateSessionNotes(r: SessionRecord, notes: string): Promise<void> {

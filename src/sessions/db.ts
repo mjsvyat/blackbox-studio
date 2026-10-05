@@ -3,12 +3,21 @@
 
 import type { SessionSnapshot } from './snapshot';
 import type { Incident } from '../incidents/incidents';
+import { BoardKey, adoptKey, migrate, moveFc, newProject } from './boards';
 
 export interface Project {
   id: string;
   name: string;
-  /** ключ борта из заголовка: Craft name или плата */
+  /** старый ключ борта (до E2.1): Craft name или плата */
   craftKey: string;
+  /** DeviceUID полётника (E2.1); нет — логи без UID (BF 4.5) или проект до миграции */
+  uid?: string;
+  /** Craft name, под которым борт известен сейчас */
+  craftName?: string;
+  /** полётник переехал отсюда в борт с этим id — новые логи сюда не приписываются */
+  fcMovedTo?: string;
+  /** тот же полётник, что у борта с этим id (переезд в новую раму) */
+  sameFcAs?: string;
   createdAt: string;
   notes: string;
   /** профиль борта: что знаем о нём (правила читают dSensitive и disabledRules) */
@@ -90,7 +99,7 @@ export class SessionStore {
     return all.filter((s) => !projectId || s.projectId === projectId).sort((x, y) => (x.snap.source.datetime || x.savedAt).localeCompare(y.snap.source.datetime || y.savedAt));
   }
 
-  /** проект борта по ключу из заголовка; нет — создаём */
+  /** проект по старому ключу (Craft name или плата); нет — создаём. Для логов — matchBoard + createBoard/adopt */
   async projectFor(craftKey: string, name?: string): Promise<Project> {
     const p = (await this.projects()).find((x) => x.craftKey === craftKey);
     if (p) return p;
@@ -100,6 +109,39 @@ export class SessionStore {
   }
 
   async saveProject(p: Project): Promise<void> { await this.b.put('projects', p); }
+
+  /** новый борт под ключ лога */
+  async createBoard(k: BoardKey, name?: string): Promise<Project> {
+    const p = newProject(newId('prj'), k, name);
+    await this.b.put('projects', p);
+    return p;
+  }
+
+  /** пилот подтвердил «это борт p» — запомнить UID и имя */
+  async adopt(p: Project, k: BoardKey): Promise<Project> {
+    const np = adoptKey(p, k);
+    await this.b.put('projects', np);
+    return np;
+  }
+
+  /** «полётник переехал в новую раму»: новый борт с тем же UID, история старого — на месте */
+  async moveFc(id: string, name: string): Promise<Project> {
+    const old = (await this.projects()).find((p) => p.id === id);
+    if (!old) throw new Error('Нет такого борта');
+    const r = moveFc(old, newId('prj'), name);
+    await this.b.put('projects', r.old);
+    await this.b.put('projects', r.fresh);
+    return r.fresh;
+  }
+
+  /** миграция проектов до E2.1 (UID из сохранённых заголовков, деление по UID); идемпотентна */
+  async migrate(): Promise<{ projects: number; moved: number }> {
+    const m = migrate(await this.projects(), await this.sessions(), await this.incidents(), () => newId('prj'));
+    for (const p of m.projects) await this.b.put('projects', p);
+    for (const x of m.sessions) await this.b.put('sessions', x);
+    for (const i of m.incidents) await this.b.put('incidents', i);
+    return { projects: m.projects.length, moved: m.sessions.length };
+  }
 
   async deleteProject(id: string): Promise<void> {
     for (const s of await this.sessions(id)) await this.b.del('sessions', s.id);
@@ -156,6 +198,8 @@ export class SessionStore {
     }
     const haveInc = new Set((await this.incidents()).map((i) => i.id));
     for (const i of (d.incidents ?? []) as Incident[]) if (!haveInc.has(i.id)) await this.b.put('incidents', { ...i, projectId: proj.id });
-    return { project: proj, added, skipped };
+    // экспорт до E2.1: борт без UID — разложить по UID из заголовков сессий
+    await this.migrate();
+    return { project: (await this.projects()).find((p) => p.id === proj.id) ?? proj, added, skipped };
   }
 }
