@@ -17,7 +17,7 @@ export interface Comparability {
   stickRatio: number[];
   cellVDiff: number | null;
   /** ключи предупреждений (тексты — i18n) */
-  warnings: ('throttle' | 'sticks' | 'voltage' | 'firmware' | 'craft' | 'log-rate')[];
+  warnings: ('throttle' | 'sticks' | 'voltage' | 'firmware' | 'craft' | 'log-rate' | 'short')[];
   bins: { pct: number; aS: number; bS: number; ok: boolean }[];
 }
 
@@ -34,11 +34,16 @@ export function comparability(a: SessionSnapshot, b: SessionSnapshot): Comparabi
   if (a.source.firmware !== b.source.firmware) warnings.push('firmware');
   if ((a.source.craft || a.source.board) !== (b.source.craft || b.source.board)) warnings.push('craft');
   if (Math.abs(a.source.fs - b.source.fs) > 1) warnings.push('log-rate');
+  // слишком короткий полёт (в т. ч. лог «на земле») — сравнивать нечего
+  const short = Math.min(a.flight.seconds, b.flight.seconds) < C.minFlightS;
+  if (short) warnings.push('short');
   const bins = a.noise.thr.pct.map((pct, i) => {
     const aS = a.noise.thr.seconds[i] ?? 0, bS = b.noise.thr.seconds[i] ?? 0;
     return { pct, aS, bS, ok: aS >= C.minBinS && bS >= C.minBinS };
   });
-  return { thrOverlap: ov, status: warnings.includes('sticks') && status === 'green' ? 'yellow' : status, stickRatio, cellVDiff, warnings, bins };
+  // висение против фристайла (стики отличаются > stickRatio раз) — трекинг, D-term и шум сравнивать
+  // некорректно, как и при разном газе: красный (A2, «должна ругаться»)
+  return { thrOverlap: ov, status: short || warnings.includes('sticks') ? 'red' : status, stickRatio, cellVDiff, warnings, bins };
 }
 
 /** служебные строки заголовка, которые меняются от лога к логу сами по себе */
@@ -116,9 +121,12 @@ export function metricRows(a: SessionSnapshot, b: SessionSnapshot): MetricRow[] 
   const st = planCheck(a, b).state;
   const pf = st === 'applied' || st === 'partial' ? a.plan?.filters ?? null : null;
   const T = C.absTol;
+  // полёты несравнимы (разный газ/стики, полёт на земле) — «лучше/хуже» для метрик, зависящих
+  // от характера полёта, не выдаём: разница — от полёта, а не от настроек
+  const unfair = comparability(a, b).status === 'red';
   const push = (id: string, va: number | null | undefined, vb: number | null | undefined, low: boolean, unit: string, digits: number, axis?: number, pred?: number, flightDependent?: boolean, tol = 0): void => {
     if (!fin(va) && !fin(vb)) return;
-    rows.push({ id, axis, a: fin(va) ? va : NaN, b: fin(vb) ? vb : NaN, pred: fin(pred) ? pred : undefined, verdict: verdict(va ?? NaN, vb ?? NaN, low, tol), unit, digits, flightDependent });
+    rows.push({ id, axis, a: fin(va) ? va : NaN, b: fin(vb) ? vb : NaN, pred: fin(pred) ? pred : undefined, verdict: unfair && flightDependent ? 'na' : verdict(va ?? NaN, vb ?? NaN, low, tol), unit, digits, flightDependent });
   };
   for (let ax = 0; ax < 3; ax++) {
     const na = a.noise.axes[ax], nb = b.noise.axes[ax];

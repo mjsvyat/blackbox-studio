@@ -6,7 +6,7 @@ import type { FilterEval } from '../filters/evaluate';
 import type { FilterParams } from '../filters/settings';
 import type { RatesEval } from '../rates/analyze';
 import type { SessionSnapshot } from '../sessions/snapshot';
-import { BoardProfile, Project, SessionRecord, SessionStore, idbBackend, memoryBackend } from '../sessions/db';
+import { BoardProfile, Project, SessionRecord, SessionStore, idbBackend, memoryBackend, newId } from '../sessions/db';
 import type { BoardKnowledge } from '../advisor/advisor';
 import { Incident, autoAnalyze, boardKnowledge, lastGood, ruleStats } from '../incidents/incidents';
 import { buildCaseFiles, caseFolderName } from '../incidents/caseExport';
@@ -18,6 +18,7 @@ import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
 import { FcUi, initialFc } from './fcState';
 import { AskReason, BoardKey, boardFor, boardKeyFromHeader, matchBoard } from '../sessions/boards';
+import { Campaign, GoalKind, SessionMark, openCampaign } from '../campaigns/campaign';
 
 export interface AppState {
   fileName: string | null;
@@ -71,6 +72,12 @@ export interface AppState {
   fc: FcUi;
   /** «это новый борт или существующий?» — ждёт ответа пилота перед сохранением сессии */
   boardAsk: { reason: AskReason; candidates: string[]; key: BoardKey } | null;
+  /** кампании настройки (A1) и выбранная */
+  campaigns: Campaign[];
+  campaignId: string | null;
+  /** снимок открытого лога (для проверки протокола до сохранения); null — не считан */
+  openSnap: SessionSnapshot | null;
+  openSnapBusy: boolean;
 }
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
@@ -116,6 +123,10 @@ export const state: AppState = {
   pidBusy: false,
   fc: initialFc(),
   boardAsk: null,
+  campaigns: [],
+  campaignId: null,
+  openSnap: null,
+  openSnapBusy: false,
 };
 
 const listeners = new Set<Listener>();
@@ -154,10 +165,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     }
     case 'opened':
-      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidSandbox: null, pidForecast: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
+      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidSandbox: null, pidForecast: null, openSnap: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
       break;
     case 'analysis':
-      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidForecast: null });
+      set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidForecast: null, openSnap: null });
       break;
     case 'filters':
       if (state.sandbox) {
@@ -338,7 +349,43 @@ function db(): Promise<SessionStore> {
 
 export async function loadSessions(): Promise<void> {
   const st = await db();
-  set({ projects: await st.projects(), sessions: await st.sessions(), incidents: await st.incidents() });
+  set({ projects: await st.projects(), sessions: await st.sessions(), incidents: await st.incidents(), campaigns: await st.campaigns() });
+}
+
+// --- кампании (A1–A2) ---
+export async function createCampaign(projectId: string, goal: GoalKind, title: string): Promise<void> {
+  const st = await db();
+  const c: Campaign = { id: newId('cmp'), projectId, goal, title, createdAt: new Date().toISOString(), status: 'open', sessionIds: [], marks: {}, notes: '' };
+  await st.saveCampaign(c);
+  await loadSessions();
+  set({ campaignId: c.id });
+}
+
+export async function updateCampaign(c: Campaign): Promise<void> {
+  await (await db()).saveCampaign(c);
+  await loadSessions();
+}
+
+export async function deleteCampaign(id: string): Promise<void> {
+  await (await db()).deleteCampaign(id);
+  await loadSessions();
+  if (state.campaignId === id) set({ campaignId: null });
+}
+
+export async function setMark(c: Campaign, sessionId: string, mark: SessionMark): Promise<void> {
+  await updateCampaign({ ...c, marks: { ...c.marks, [sessionId]: mark } });
+}
+
+/** снимок открытого лога — для проверки по протоколу сразу после загрузки (без сохранения) */
+export async function ensureOpenSnap(): Promise<void> {
+  if (!state.info || state.openSnap || state.openSnapBusy) return;
+  set({ openSnapBusy: true });
+  try {
+    const snap = await requestSnapshot();
+    set({ openSnap: snap });
+  } finally {
+    set({ openSnapBusy: false });
+  }
 }
 
 const snapPending = new Map<number, (s: SessionSnapshot) => void>();
@@ -384,6 +431,9 @@ let pendingSave: { snap: SessionSnapshot; notes: string } | null = null;
 async function finishSave(projectId: string, snap: SessionSnapshot, notes: string): Promise<void> {
   const st = await db();
   const r = await st.saveSession(projectId, snap, notes);
+  // новый полёт борта — в его открытую кампанию (следующая итерация)
+  const oc = openCampaign(await st.campaigns(projectId), projectId);
+  if (oc) await st.saveCampaign({ ...oc, sessionIds: [...oc.sessionIds, r.id] });
   await loadSessions();
   // удобно: последняя сохранённая — «стало», предыдущая этого борта — «было»
   const list = state.sessions.filter((x) => x.projectId === projectId);

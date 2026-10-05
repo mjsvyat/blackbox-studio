@@ -13,6 +13,7 @@ import { SessionSnapshot, buildSnapshot } from '../sessions/snapshot';
 import { LogContext } from './context';
 import { FlightMask, buildFlightMask } from './flightMask';
 import { HealthResult, analyzeHealth } from './health';
+import { ManeuverCount, countManeuvers } from './maneuvers';
 import { NoiseResult, analyzeNoise } from './noise';
 import { Card, LogMeta, buildSummary } from './summary';
 
@@ -23,6 +24,8 @@ export interface Analysis {
   h: HealthResult;
   filters: { params: FilterParams; fctx: FilterContext; base: FilterBaseline; sim: ReturnType<typeof buildBaseline>['sim'] } | null;
   pid: PidResult | null;
+  /** манёвры для протокола тестового полёта (A2) */
+  maneuvers: ManeuverCount;
   /** модель оси для прогноза PID (null — не построена) */
   sysid: Sysid | null;
   cards: Card[];
@@ -56,7 +59,8 @@ export function analyzeLog(c: LogContext, range: { t0: number; t1: number } | nu
     }
   }
   const cards = buildSummary(c, fm, nz, h, meta, filters?.base ?? null, pid);
-  return { c, fm, nz, h, filters, pid, sysid, cards };
+  const maneuvers = countManeuvers(c, fm.mask);
+  return { c, fm, nz, h, filters, pid, maneuvers, sysid, cards };
 }
 
 /** советы + ожидаемый эффект советов по фильтрам (точная модель, как в песочнице) */
@@ -166,6 +170,6 @@ export function snapshotLog(a: Analysis, adv: AdvisorResult, src: { fileName: st
     header: H, cards: a.cards, noise: a.nz, maskSeconds: a.fm.seconds, thrPct: c.thrPct,
     setpoint: [0, 1, 2].map((ax) => col(c.log, `setpoint[${ax}]`)),
     vbatCell: vb && c.cells ? Float32Array.from(vb, (v) => (v * 0.01) / c.cells) : null,
-    mask: a.fm.mask, filterBase: a.filters?.base ?? null, pid: a.pid, advice: adv, planEval: pe, planPid,
+    mask: a.fm.mask, filterBase: a.filters?.base ?? null, pid: a.pid, advice: adv, planEval: pe, planPid, maneuvers: a.maneuvers,
   });
 }

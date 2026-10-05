@@ -186,3 +186,15 @@ table.grid tr.click:hover td { background: var(--bg3); }
 table.kv th { width: 180px; font-size: 13px; }
 .panel.good { border-left: 4px solid var(--green); }
 .row .spacer { flex: 1; }
+
+/* кампания */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 8px; }
+.camp-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.camp-item:hover, .camp-item.active { background: var(--bg3); }
+.good-text { color: var(--green); }
+.warn-text { color: var(--yellow); }
+pre.cli { background: var(--bg3); padding: 6px 8px; border-radius: 6px; margin: 4px 0; white-space: pre-wrap; }
+table.proto tr.bad td:first-child { color: var(--red); }
+table.proto tr.ok td:first-child { color: var(--green); }
+.grid3 > div > b:first-child { display: block; margin-bottom: 4px; }

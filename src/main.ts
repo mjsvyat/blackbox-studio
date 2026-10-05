@@ -13,6 +13,7 @@ import { pidView } from './ui/views/pid';
 import { tuningView } from './ui/views/tuning';
 import { sessionsView } from './ui/views/sessions';
 import { fcView } from './ui/views/fc';
+import { campaignView } from './ui/views/campaign';
 
 const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan?: string[] }[] = [
   { id: 'file', title: T.tabs.file, needsLog: false },
@@ -25,6 +26,7 @@ const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan
   { id: 'flight', title: T.tabs.flight, needsLog: true },
   { id: 'tuning', title: T.tabs.tuning, needsLog: true },
   { id: 'compare', title: T.tabs.compare, needsLog: false },
+  { id: 'campaign', title: T.tabs.campaign, needsLog: false },
   { id: 'fc', title: T.tabs.fc, needsLog: false },
 ];
 
@@ -104,6 +106,7 @@ function render(): void {
     // сохранённые сессии можно смотреть и без открытого файла
     if (state.tab === 'compare') main.append(sessionsView(track));
     else if (state.tab === 'fc') main.append(fcView());
+    else if (state.tab === 'campaign') main.append(campaignView(track));
     else main.append(dropZone());
     return;
   }
@@ -124,6 +127,7 @@ function render(): void {
     case 'flight': main.append(flightView(track)); break;
     case 'motors': main.append(motorsView(track)); break;
     case 'fc': main.append(fcView()); break;
+    case 'campaign': main.append(campaignView(track)); break;
     default:
       main.append(h('div', { class: 'placeholder' },
         h('h2', { style: 'justify-content:center' }, tab.title, helpBtn(`card-${tab.id === 'filters' ? 'filters' : 'pid'}`)),
@@ -139,6 +143,7 @@ function dropZone(): HTMLElement {
     h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
     h('div', { class: 'row', style: 'margin-top:12px;justify-content:center' },
       h('button', { class: 'btn small', onclick: () => set({ tab: 'compare' }) }, T.ses.title),
+      h('button', { class: 'btn small', onclick: () => set({ tab: 'campaign' }) }, T.camp.title),
       h('button', { class: 'btn small', onclick: () => set({ tab: 'fc' }) }, T.fc.open)));
   return z;
 }
@@ -165,7 +170,7 @@ function renderProgress(): void {
   progressLabel.textContent = `${p.stage || T.loading} · ${Math.round(p.fraction * 100)} %`;
 }
 
-const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor', 'fc', 'boardAsk'];
+const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor', 'fc', 'boardAsk', 'campaigns', 'campaignId', 'openSnap'];
 subscribe((_s, changed) => {
   if (changed.has('progress')) renderProgress();
   if (RERENDER.some((k) => changed.has(k))) {

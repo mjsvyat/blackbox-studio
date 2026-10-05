@@ -4,6 +4,7 @@
 import type { SessionSnapshot } from './snapshot';
 import type { Incident } from '../incidents/incidents';
 import { BoardKey, adoptKey, migrate, moveFc, newProject } from './boards';
+import type { Campaign } from '../campaigns/campaign';
 
 export interface Project {
   id: string;
@@ -42,7 +43,7 @@ export interface SessionRecord {
   snap: SessionSnapshot;
 }
 
-export type StoreName = 'projects' | 'sessions' | 'incidents';
+export type StoreName = 'projects' | 'sessions' | 'incidents' | 'campaigns';
 
 export interface Backend {
   all<T>(store: StoreName): Promise<T[]>;
@@ -51,7 +52,7 @@ export interface Backend {
 }
 
 export function memoryBackend(): Backend {
-  const m = { projects: new Map<string, unknown>(), sessions: new Map<string, unknown>(), incidents: new Map<string, unknown>() };
+  const m = { projects: new Map<string, unknown>(), sessions: new Map<string, unknown>(), incidents: new Map<string, unknown>(), campaigns: new Map<string, unknown>() };
   return {
     async all<T>(s: StoreName) { return [...m[s].values()].map((v) => structuredClone(v)) as T[]; },
     async put(s, v) { m[s].set(v.id, structuredClone(v)); },
@@ -61,11 +62,11 @@ export function memoryBackend(): Backend {
 
 export function idbBackend(name = 'blackbox-studio'): Promise<Backend> {
   return new Promise((res, rej) => {
-    // версия 2 — добавлен журнал инцидентов
-    const rq = indexedDB.open(name, 2);
+    // версия 2 — журнал инцидентов, 3 — кампании настройки
+    const rq = indexedDB.open(name, 3);
     rq.onupgradeneeded = () => {
       const db = rq.result;
-      for (const st of ['projects', 'sessions', 'incidents']) if (!db.objectStoreNames.contains(st)) db.createObjectStore(st, { keyPath: 'id' });
+      for (const st of ['projects', 'sessions', 'incidents', 'campaigns']) if (!db.objectStoreNames.contains(st)) db.createObjectStore(st, { keyPath: 'id' });
     };
     rq.onerror = () => rej(rq.error);
     rq.onsuccess = () => {
@@ -146,6 +147,7 @@ export class SessionStore {
   async deleteProject(id: string): Promise<void> {
     for (const s of await this.sessions(id)) await this.b.del('sessions', s.id);
     for (const i of await this.incidents(id)) await this.b.del('incidents', i.id);
+    for (const c of await this.campaigns(id)) await this.b.del('campaigns', c.id);
     await this.b.del('projects', id);
   }
 
@@ -156,7 +158,17 @@ export class SessionStore {
   }
 
   async updateSession(r: SessionRecord): Promise<void> { await this.b.put('sessions', r); }
-  async deleteSession(id: string): Promise<void> { await this.b.del('sessions', id); }
+  async deleteSession(id: string): Promise<void> {
+    await this.b.del('sessions', id);
+    // из кампаний — тоже
+    for (const c of await this.campaigns()) if (c.sessionIds.includes(id)) await this.saveCampaign({ ...c, sessionIds: c.sessionIds.filter((x) => x !== id) });
+  }
+
+  async campaigns(projectId?: string): Promise<Campaign[]> {
+    return (await this.b.all<Campaign>('campaigns')).filter((c) => !projectId || c.projectId === projectId).sort((x, y) => x.createdAt.localeCompare(y.createdAt));
+  }
+  async saveCampaign(c: Campaign): Promise<void> { await this.b.put('campaigns', c); }
+  async deleteCampaign(id: string): Promise<void> { await this.b.del('campaigns', id); }
 
   /** тот же лог уже сохранён (файл, номер, время начала) */
   async findSame(snap: SessionSnapshot): Promise<SessionRecord | null> {
@@ -180,7 +192,7 @@ export class SessionStore {
   async exportProject(id: string): Promise<string> {
     const p = (await this.projects()).find((x) => x.id === id);
     if (!p) throw new Error('Нет такого проекта');
-    return JSON.stringify({ format: 'blackbox-studio-project', v: 1, exportedAt: new Date().toISOString(), project: p, sessions: await this.sessions(id), incidents: await this.incidents(id) });
+    return JSON.stringify({ format: 'blackbox-studio-project', v: 1, exportedAt: new Date().toISOString(), project: p, sessions: await this.sessions(id), incidents: await this.incidents(id), campaigns: await this.campaigns(id) });
   }
 
   /** импорт: проект с тем же id дополняется, сессии с существующими id пропускаются */
@@ -198,6 +210,8 @@ export class SessionStore {
     }
     const haveInc = new Set((await this.incidents()).map((i) => i.id));
     for (const i of (d.incidents ?? []) as Incident[]) if (!haveInc.has(i.id)) await this.b.put('incidents', { ...i, projectId: proj.id });
+    const haveCmp = new Set((await this.campaigns()).map((c) => c.id));
+    for (const c of (d.campaigns ?? []) as Campaign[]) if (!haveCmp.has(c.id)) await this.b.put('campaigns', { ...c, projectId: proj.id });
     // экспорт до E2.1: борт без UID — разложить по UID из заголовков сессий
     await this.migrate();
     return { project: (await this.projects()).find((p) => p.id === proj.id) ?? proj, added, skipped };
