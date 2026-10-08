@@ -1,0 +1,87 @@
+# Windows-программа: установщик + portable + веб-версия одним файлом.
+#  - PR, меняющий программу (desktop/, этот файл, версию) — только сборка, exe в артефактах прогона;
+#  - тег v* или ручной запуск (Actions → Release → Run workflow) — сборка и релиз на GitHub
+#    с тегом v<releaseName из package.json> и текстом из CHANGELOG.md.
+# Собирается на windows-latest: установщику NSIS и иконке в exe на Linux нужен Wine.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/release.yml'
+      - 'package.json'
+      - 'CHANGELOG.md'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+
+      - name: Версия
+        id: v
+        shell: bash
+        run: |
+          rel=$(node -p "require('./package.json').releaseName")
+          echo "release=$rel" >> "$GITHUB_OUTPUT"
+          echo "tag=v$rel" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$rel" ]]; then
+            echo "::error::Тег $GITHUB_REF_NAME не совпадает с версией в package.json (v$rel)"; exit 1
+          fi
+          node scripts/release-notes.mjs "$rel" > release-notes.md
+          cat release-notes.md
+
+      - name: Сборка страницы (tsc + vite)
+        run: |
+          npm ci
+          npm run build
+
+      - name: Сборка программы (electron-builder)
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist
+
+      - name: Файлы в артефакты прогона
+        uses: actions/upload-artifact@v6
+        with:
+          name: BlackboxStudio-${{ steps.v.outputs.tag }}-windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.html
+            desktop/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Релиз на GitHub
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Blackbox Studio ${{ steps.v.outputs.tag }}
+          body_path: release-notes.md
+          files: |
+            desktop/release/BlackboxStudio-Setup-${{ steps.v.outputs.tag }}.exe
+            desktop/release/BlackboxStudio-Portable-${{ steps.v.outputs.tag }}.exe
+            desktop/release/BlackboxStudio-${{ steps.v.outputs.tag }}-web.html
+            desktop/release/SHA256SUMS.txt
+          fail_on_unmatched_files: true

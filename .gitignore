@@ -3,3 +3,4 @@ dist
 .playwright-mcp
 *.log
 test-results.json
+!desktop/build/

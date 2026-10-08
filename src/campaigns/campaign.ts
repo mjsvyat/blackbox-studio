@@ -8,8 +8,10 @@ import cfg from '../config/analysis.json';
 import { Comparability, MetricRow, PlanCheck, comparability, metricRows, planCheck } from '../sessions/compare';
 import type { SessionRecord } from '../sessions/db';
 import type { SessionSnapshot } from '../sessions/snapshot';
+import type { FeelTag, PropsState } from '../autotune/autotune';
 
-export type GoalKind = 'propwash' | 'cooler' | 'noise' | 'sharper' | 'other';
+// autotune — серия автотюна (создаётся кнопкой «Автотюн», в списке целей новой кампании её нет)
+export type GoalKind = 'propwash' | 'cooler' | 'noise' | 'sharper' | 'other' | 'autotune';
 export const GOALS: GoalKind[] = ['propwash', 'cooler', 'noise', 'sharper', 'other'];
 
 /** отметки пилота к полёту: то, чего нет в логе */
@@ -17,6 +19,10 @@ export interface SessionMark {
   /** моторы на ощупь: 0 холодные, 1 тёплые, 2 горячие, 3 обжигают */
   motorTemp: 0 | 1 | 2 | 3 | null;
   feel: string;
+  /** пропы в этом полёте (автотюн): целые / сколы / побиты */
+  props?: PropsState | null;
+  /** ощущения отметками (автотюн) */
+  tags?: FeelTag[];
 }
 
 export interface Campaign {

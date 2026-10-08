@@ -1,4 +1,5 @@
 import './ui/styles.css';
+import { APP_VERSION } from './version';
 import { T } from './i18n/ru';
 import { clear, fmtTime, h } from './ui/dom';
 import { helpBtn, openGlossary } from './ui/help';
@@ -14,6 +15,7 @@ import { tuningView } from './ui/views/tuning';
 import { sessionsView } from './ui/views/sessions';
 import { fcView } from './ui/views/fc';
 import { campaignView, selectBoard } from './ui/views/campaign';
+import { autotuneView } from './ui/views/autotune';
 import { openCampaign } from './campaigns/campaign';
 import { boardFor } from './sessions/boards';
 
@@ -27,6 +29,7 @@ const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan
   { id: 'motors', title: T.tabs.motors, needsLog: true },
   { id: 'flight', title: T.tabs.flight, needsLog: true },
   { id: 'tuning', title: T.tabs.tuning, needsLog: true },
+  { id: 'autotune', title: T.tabs.autotune, needsLog: false },
   { id: 'compare', title: T.tabs.compare, needsLog: false },
   { id: 'campaign', title: T.tabs.campaign, needsLog: false },
   { id: 'fc', title: T.tabs.fc, needsLog: false },
@@ -68,12 +71,13 @@ function renderTopbar(): void {
           `№${l.index} · ${l.datetime.slice(0, 16).replace('T', ' ')} · ${l.durationS !== null ? fmtTime(l.durationS) : '?'}${l.empty ? ' (пустой)' : ''}`)))
     : null;
   topbar.append(
-    h('h1', null, T.appTitle),
+    h('h1', null, T.appTitle, h('span', { class: 'app-ver', title: T.versionHint }, APP_VERSION)),
     h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
     h('span', { class: 'file-name' }, state.fileName ?? T.noFile),
     sel ?? "",
     h('span', { class: 'spacer' }),
     boardSwitcher(),
+    h('button', { class: `btn small ${state.tab === 'autotune' ? '' : 'primary'}`, title: T.at.intro, onclick: () => set({ tab: 'autotune' }) }, T.at.button),
     h('button', { class: `btn small ${state.fc.phase === 'connected' ? 'primary' : ''}`, onclick: () => set({ tab: 'fc' }) }, T.fc.open),
     state.info ? h('button', { class: 'btn small', onclick: () => exportReport() }, T.rep.button) : '',
     h('button', { class: 'btn small', onclick: openGlossary }, T.help.glossary),
@@ -135,6 +139,7 @@ function render(): void {
     if (state.tab === 'compare') main.append(sessionsView(track));
     else if (state.tab === 'fc') main.append(fcView());
     else if (state.tab === 'campaign') main.append(campaignView(track));
+    else if (state.tab === 'autotune') main.append(autotuneView(() => fileInput.click()));
     else main.append(dropZone());
     return;
   }
@@ -156,6 +161,7 @@ function render(): void {
     case 'motors': main.append(motorsView(track)); break;
     case 'fc': main.append(fcView()); break;
     case 'campaign': main.append(campaignView(track)); break;
+    case 'autotune': main.append(autotuneView(() => fileInput.click())); break;
     default:
       main.append(h('div', { class: 'placeholder' },
         h('h2', { style: 'justify-content:center' }, tab.title, helpBtn(`card-${tab.id === 'filters' ? 'filters' : 'pid'}`)),
@@ -171,6 +177,7 @@ function dropZone(): HTMLElement {
     h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
     h('div', { class: 'row', style: 'margin-top:12px;justify-content:center' },
       h('button', { class: 'btn small', onclick: () => set({ tab: 'compare' }) }, T.ses.title),
+      h('button', { class: 'btn small', onclick: () => set({ tab: 'autotune' }) }, T.at.button),
       h('button', { class: 'btn small', onclick: () => set({ tab: 'campaign' }) }, T.camp.title),
       h('button', { class: 'btn small', onclick: () => set({ tab: 'fc' }) }, T.fc.open)));
   return z;
@@ -198,7 +205,7 @@ function renderProgress(): void {
   progressLabel.textContent = `${p.stage || T.loading} · ${Math.round(p.fraction * 100)} %`;
 }
 
-const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor', 'fc', 'boardAsk', 'campaigns', 'campaignId', 'openSnap', 'videoTick', 'transferFor'];
+const RERENDER: (keyof AppState)[] = ['structure', 'info', 'analysis', 'tab', 'noiseAxis', 'noiseSource', 'error', 'fileName', 'filters', 'filterAxis', 'rates', 'ratesWhy', 'pid', 'advice', 'projects', 'sessions', 'dbPersistent', 'cmpA', 'cmpB', 'cmpAxis', 'sessionsBusy', 'sessionsMsg', 'incidents', 'incidentForm', 'rollbackFor', 'fc', 'boardAsk', 'campaigns', 'campaignId', 'openSnap', 'videoTick', 'transferFor', 'autotune'];
 subscribe((_s, changed) => {
   if (changed.has('progress')) renderProgress();
   if (RERENDER.some((k) => changed.has(k))) {

@@ -66,7 +66,8 @@ a { color: var(--accent); }
   background: var(--bg2); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20;
 }
-.topbar h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: 0.3px; }
+.topbar h1 { font-size: 16px; margin: 0 8px 0 0; letter-spacing: 0.3px; white-space: nowrap; }
+.topbar h1 .app-ver { font-size: 11px; font-weight: 400; color: var(--fg2); margin-left: 6px; letter-spacing: 0; }
 .topbar .file-name { color: var(--fg2); max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .spacer { flex: 1; }
 .btn {

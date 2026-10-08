@@ -1,0 +1,40 @@
+name: Ошибка
+description: Программа упала, посчитала неправильно или ведёт себя странно
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Если проблема в советах (стало хуже после совета) — лучше «⚠ Сообщить о проблеме» в программе:
+        она соберёт папку случая со всеми цифрами.
+        **Логи — личные данные** (ID платы, иногда GPS). Прикладывай их, только если согласен.
+  - type: input
+    id: version
+    attributes:
+      label: Версия программы
+      description: В шапке окна, рядом с названием (например, v1.08.26)
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Где запускаешь
+      options:
+        - Программа для Windows (установщик)
+        - Программа для Windows (portable)
+        - Веб-версия (html в браузере)
+        - Из исходников (npm run dev)
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Прошивка и плата
+      description: Из вкладки «Сводка» (например, Betaflight 2026.6.1, STM32F722)
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что делал, что ожидал увидеть, что увидел. Скриншот очень помогает.
+    validations:
+      required: true

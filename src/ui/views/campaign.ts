@@ -122,7 +122,7 @@ export function campaignView(track: (d: () => void) => void): HTMLElement {
   return out;
 }
 
-function nextFlight(goal: GoalKind, uid: string | null): HTMLElement {
+export function nextFlight(goal: GoalKind, uid: string | null): HTMLElement {
   const n = protocolNeeds(goal);
   const le = uid ? lastErase(uid) : null;
   return h('div', { class: 'panel' },
@@ -148,11 +148,11 @@ function protoBlock(pc: ProtocolCheck): HTMLElement {
 function iterCard(it: Iteration, c: Parameters<typeof setMark>[0]): HTMLElement {
   const s = it.session.snap;
   const unfair = it.protocol.fair?.status === 'red';
-  const temp = h('select', { class: 'btn small', onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; setMark(c, it.session.id, { motorTemp: v === '' ? null : (Number(v) as 0 | 1 | 2 | 3), feel: it.mark?.feel ?? '' }); } },
+  const temp = h('select', { class: 'btn small', onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; setMark(c, it.session.id, { ...it.mark, motorTemp: v === '' ? null : (Number(v) as 0 | 1 | 2 | 3), feel: it.mark?.feel ?? '' }); } },
     h('option', { value: '', selected: it.mark?.motorTemp === null || it.mark === null }, T.camp.tempNone),
     T.camp.temps.map((t, i) => h('option', { value: i, selected: it.mark?.motorTemp === i }, t)));
   const feel = h('input', { type: 'text', value: it.mark?.feel ?? '', placeholder: T.camp.feelPh, style: 'flex:1;min-width:200px' }) as HTMLInputElement;
-  feel.addEventListener('change', () => setMark(c, it.session.id, { motorTemp: it.mark?.motorTemp ?? null, feel: feel.value }));
+  feel.addEventListener('change', () => setMark(c, it.session.id, { ...it.mark, motorTemp: it.mark?.motorTemp ?? null, feel: feel.value }));
 
   const proposed = it.prev
     ? it.proposed

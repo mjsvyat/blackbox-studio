@@ -1,0 +1,19 @@
+{
+  "name": "blackbox-studio-desktop",
+  "productName": "Blackbox Studio",
+  "private": true,
+  "version": "1.8.26",
+  "releaseName": "1.08.26",
+  "description": "Blackbox Studio — разбор и настройка квадрокоптера по блэкбоксу Betaflight",
+  "author": "mjsvyat",
+  "homepage": "https://github.com/mjsvyat/blackbox-studio",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "node scripts/build.mjs --prepare-only && electron .",
+    "dist": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  }
+}
