@@ -20,9 +20,10 @@ import type { RateProfile } from '../rates/rates';
 import WorkerCtor from '../worker/worker.ts?worker&inline';
 import { FcUi, initialFc } from './fcState';
 import { AskReason, BoardKey, boardFor, boardKeyFromHeader, matchBoard } from '../sessions/boards';
-import { Campaign, GoalKind, SessionMark, openCampaign } from '../campaigns/campaign';
+import { Campaign, GoalKind, SessionMark, campaignSessions, openCampaign } from '../campaigns/campaign';
 import { DEFAULT_CLASS } from '../config/classes';
 import { normalizeProfile } from '../sessions/profile';
+import { AutotuneCheckin, AutotuneCtx, revertFor, revertedRules, unfiltJump } from '../autotune/autotune';
 
 export interface AppState {
   fileName: string | null;
@@ -86,7 +87,19 @@ export interface AppState {
   /** снимок открытого лога (для проверки протокола до сохранения); null — не считан */
   openSnap: SessionSnapshot | null;
   openSnapBusy: boolean;
+  /** автотюн открытого лога: ответы пилота и контекст для советчика (сбрасывается новым логом) */
+  autotune: AutotuneUi;
 }
+
+export interface AutotuneUi {
+  checkin: AutotuneCheckin | null;
+  ctx: AutotuneCtx | null;
+  busy: boolean;
+  msg: { kind: 'ok' | 'bad'; text: string } | null;
+  /** id сессии, в которую сохранён этот полёт */
+  savedId: string | null;
+}
+const initialAutotune = (): AutotuneUi => ({ checkin: null, ctx: null, busy: false, msg: null, savedId: null });
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
 
@@ -137,6 +150,7 @@ export const state: AppState = {
   campaignId: null,
   openSnap: null,
   openSnapBusy: false,
+  autotune: initialAutotune(),
 };
 
 const listeners = new Set<Listener>();
@@ -176,7 +190,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     }
     case 'opened':
       queueMicrotask(() => void syncBoardClass());
-      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidSandbox: null, pidForecast: null, openSnap: null, info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
+      set({ filters: null, sandbox: null, sandboxEval: null, rates: null, ratesWhy: null, ratesSandbox: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidSandbox: null, pidForecast: null, openSnap: null, autotune: initialAutotune(), info: m.info, analysis: m.analysis, view: { t0: 0, t1: m.info.durationS }, progress: null, error: null, tab: state.tab === 'file' ? 'summary' : state.tab });
       break;
     case 'analysis':
       set({ analysis: m.analysis, progress: null, filters: null, sandboxEval: null, rates: null, ratesEval: null, ratesManeuver: 0, pid: null, advice: null, pidForecast: null, openSnap: null });
@@ -331,9 +345,10 @@ async function currentBoard(): Promise<BoardKnowledge | null> {
   const st = await db();
   // только уверенное совпадение (UID + имя); спорные случаи решает пилот при сохранении сессии
   const p = boardFor(await st.projects(), state.info.header);
-  if (!p) return null;
+  // новый борт: знания нет, но автотюн открытого лога всё равно действует
+  if (!p) return state.autotune.ctx ? { autotune: state.autotune.ctx } : null;
   const ss = await st.sessions(p.id);
-  return { ...boardKnowledge(ruleStats(ss, await st.incidents(p.id)), p.profile ?? {}, ss), cls: normalizeProfile(p.profile).cls };
+  return { ...boardKnowledge(ruleStats(ss, await st.incidents(p.id)), p.profile ?? {}, ss), cls: normalizeProfile(p.profile).cls, autotune: state.autotune.ctx ?? undefined };
 }
 
 // --- сессии (этап 5) ---
@@ -648,5 +663,104 @@ export async function exportReport(snap?: SessionSnapshot, before?: SessionSnaps
     download(name, reportHtml(s, images, before), 'text/html');
   } finally {
     set({ progress: null });
+  }
+}
+
+// --- автотюн ---
+
+const sameLog = (a: SessionSnapshot, b: SessionSnapshot): boolean =>
+  a.source.fileName === b.source.fileName && a.source.logIndex === b.source.logIndex && a.source.datetime === b.source.datetime;
+
+function setAt(patch: Partial<AutotuneUi>): void {
+  set({ autotune: { ...state.autotune, ...patch } });
+}
+
+/** открытая серия автотюна борта (последняя по времени создания) */
+export function autotuneCampaign(projectId: string): Campaign | null {
+  return state.campaigns.filter((c) => c.projectId === projectId && c.goal === 'autotune' && c.status === 'open').sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
+}
+
+/**
+ * Разобрать открытый лог в автотюне: по ответам пилота и истории серии собрать контекст
+ * (стартовые настройки, откат прошлого изменения, скачок шума до фильтров, откатанные правила)
+ * и пересчитать советы с ним — тем же советчиком в воркере.
+ */
+export async function runAutotune(checkin: AutotuneCheckin): Promise<void> {
+  if (!state.info) return;
+  setAt({ checkin, busy: true, msg: null, ctx: null, savedId: null });
+  try {
+    await loadSessions();
+    const snap = state.openSnap ?? (await requestSnapshot());
+    if (!state.openSnap) set({ openSnap: snap });
+    const st = await db();
+    const p = boardFor(await st.projects(), state.info.header);
+    const c = p ? autotuneCampaign(p.id) : null;
+    const series = c ? campaignSessions(c, state.sessions).filter((r) => !sameLog(r.snap, snap)) : [];
+    const prev = series[series.length - 1] ?? null;
+    const refs = series.filter((r) => c!.marks[r.id]?.props === 'ok').map((r) => r.snap);
+    const ctx: AutotuneCtx = {
+      checkin,
+      baseline: series[0]?.snap.cli ?? snap.cli,
+      iteration: series.length + 1,
+      revert: prev ? revertFor(prev.snap, snap, checkin, c!.marks[prev.id]?.motorTemp ?? null) : null,
+      unfiltJumpPct: unfiltJump(refs, snap),
+      avoid: revertedRules(series.map((r) => r.snap)),
+    };
+    setAt({ ctx });
+    set({ advice: null });
+    ensureAdvice();
+  } catch (e) {
+    setAt({ msg: { kind: 'bad', text: e instanceof Error ? e.message : String(e) } });
+  } finally {
+    setAt({ busy: false });
+  }
+}
+
+/**
+ * Сохранить полёт в серию автотюна (сессия + отметки пилота). true — сохранено; запись плана на
+ * борт готовит вкладка (fcPrepare; сама запись — во вкладке «Полётник», по кнопке и после
+ * проверки «не заармлен»).
+ */
+export async function autotuneSave(): Promise<boolean> {
+  const at = state.autotune;
+  const adv = state.advice;
+  if (!state.info || !at.checkin || !at.ctx || !adv) return false;
+  setAt({ busy: true, msg: null });
+  try {
+    await saveCurrentSession(T.at.sessionNote(at.ctx.iteration));
+    if (state.boardAsk) {
+      setAt({ msg: { kind: 'bad', text: T.at.boardAsk } });
+      set({ tab: 'compare' });
+      return false;
+    }
+    const snap = state.openSnap!;
+    const r = state.sessions.find((x) => sameLog(x.snap, snap));
+    if (!r) throw new Error(state.sessionsMsg ?? T.at.notSaved);
+    // лог мог быть сохранён раньше без автотюна — план сессии должен быть планом автотюна
+    if (!r.snap.autotune) {
+      const fresh = await requestSnapshot();
+      await (await db()).updateSession({ ...r, snap: fresh });
+      await loadSessions();
+    }
+    let c = autotuneCampaign(r.projectId);
+    if (!c) {
+      const name = state.projects.find((p) => p.id === r.projectId)?.name ?? '';
+      await createCampaign(r.projectId, 'autotune', T.at.seriesTitle(name));
+      c = autotuneCampaign(r.projectId);
+    }
+    if (!c) throw new Error(T.at.notSaved);
+    if (!c.sessionIds.includes(r.id)) {
+      c = { ...c, sessionIds: [...c.sessionIds, r.id] };
+      await updateCampaign(c);
+    }
+    const ck = at.checkin;
+    await setMark(c, r.id, { motorTemp: ck.motorTemp, feel: ck.feel.map((f) => T.at.feel[f]).join(', '), props: ck.props, tags: ck.feel });
+    setAt({ savedId: r.id, msg: { kind: 'ok', text: T.at.saved(at.ctx.iteration) } });
+    return true;
+  } catch (e) {
+    setAt({ msg: { kind: 'bad', text: e instanceof Error ? e.message : String(e) } });
+    return false;
+  } finally {
+    setAt({ busy: false });
   }
 }

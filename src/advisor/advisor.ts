@@ -13,6 +13,7 @@ import { applySimplified, FilterParams } from '../filters/settings';
 import { clampParam, paramAvailable } from '../params/registry';
 import { PidGains, SimplifiedPids, simplifiedPids, gainsToCli, simplifiedToCli } from '../pid/gains';
 import type { PidResult } from '../pid/analyze';
+import { AutotuneCtx, AutotuneSummary, autotunePolicy, autotuneSummary } from '../autotune/autotune';
 
 type AdvisorCfg = typeof cfg.advisor;
 /** пороги текущего прогона (по умолчанию — из конфига; тесты случаев могут подменить) */
@@ -39,7 +40,9 @@ export interface Advice {
   tab: string;
   /** выбрано в эту итерацию; иначе — почему отложено */
   selected: boolean;
-  deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky' | 'caution' | 'stability';
+  deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky' | 'caution' | 'stability'
+    // автотюн (autotune.ts): пропы, только откат, уже откатывали, моторы не горячие, пол «не душить», горячо, нравится
+    | 'props' | 'revert-only' | 'reverted' | 'not-hot' | 'floor' | 'hot' | 'happy';
   /** на этом борту правило уже ухудшало результат (этап 6) */
   caution?: { worse: number; n: number; incidents: string[] };
   /** ожидаемый эффект по точной модели (фильтры) — заполняет воркер */
@@ -84,6 +87,8 @@ export interface BoardKnowledge {
   dSensitive?: boolean;
   /** правило → сколько раз применено и сколько раз стало хуже, инциденты */
   caution?: Record<string, { worse: number; n: number; incidents: string[] }>;
+  /** автотюн: пропы, ощущения пилота, стартовые настройки серии, откат (autotune.ts) */
+  autotune?: AutotuneCtx;
 }
 
 export interface AdvisorResult {
@@ -93,6 +98,8 @@ export interface AdvisorResult {
   /** суммарные изменения выбранных советов */
   from: Record<string, number>;
   to: Record<string, number>;
+  /** что решил автотюн по этому полёту (если советы считались в автотюне) */
+  autotune?: AutotuneSummary;
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -275,6 +282,9 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     const cs = inp.board?.caution?.[a.id];
     if (cs) a.caution = cs;
   }
+  // автотюн: свои правила R-AT-* и что в этот полёт не трогаем («не душить», пропы, откат)
+  autotunePolicy(c.out, inp, (a) => add(c, a));
+  const maxChanges = inp.board?.autotune ? cfg.autotune.maxChanges : A.maxChanges;
 
   // ---------- выбор на эту итерацию ----------
   const mech = c.out.some((a) => a.kind === 'mechanic' && a.severity === 'red');
@@ -284,11 +294,14 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     // параметр, которого нет в этой версии прошивки, не советуем
     for (const k of Object.keys(a.changes)) if (!paramAvailable(k, inp.fwCode)) { delete a.changes[k]; delete a.from[k]; }
     if (a.kind !== 'tune') { a.selected = true; continue; }
-    if (mech) { a.deferred = 'mechanics-first'; continue; }
-    if (a.caution) { a.deferred = 'caution'; continue; }
-    if (stabilityBlock && raisesPD(a)) { a.deferred = 'stability'; continue; }
+    if (a.deferred) continue;
+    // откат к настройкам, на которых уже летали, — не ждёт механику и не боится «осторожности»
+    const revert = a.id === 'R-AT-REVERT-01';
+    if (mech && !revert) { a.deferred = 'mechanics-first'; continue; }
+    if (a.caution && !revert) { a.deferred = 'caution'; continue; }
+    if (stabilityBlock && raisesPD(a) && !revert) { a.deferred = 'stability'; continue; }
     if (Object.keys(a.changes).some((k) => used.has(k))) { a.deferred = 'same-param'; continue; }
-    if (n >= A.maxChanges) { a.deferred = 'max-changes'; continue; }
+    if (n >= maxChanges) { a.deferred = 'max-changes'; continue; }
     if (a.safety && nSafety >= A.maxSafetyChanges) { a.deferred = 'one-risky'; continue; }
     if (!Object.keys(a.changes).length) continue;
     a.selected = true;
@@ -298,7 +311,7 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
   }
   const from: Record<string, number> = {}, to: Record<string, number> = {};
   for (const a of c.out) if (a.selected && a.kind === 'tune') { Object.assign(from, a.from); Object.assign(to, a.changes); }
-  return { advice: c.out, from, to };
+  return { advice: c.out, from, to, autotune: autotuneSummary(c.out, inp) };
 }
 
 /** совет поднимает P или D (напрямую или слайдером Simplified) */

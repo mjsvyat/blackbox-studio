@@ -12,10 +12,12 @@ import type { PidResult } from '../pid/analyze';
 import { gainsFromHeader, gainsToCli, simplifiedFromHeader, simplifiedToCli } from '../pid/gains';
 import { profileToCli, ratesFromHeader } from '../rates/rates';
 import type { ManeuverCount } from '../analysis/maneuvers';
+import type { AutotuneSummary } from '../autotune/autotune';
 
-// 2 — добавлены манёвры (flight.maneuvers, A2); 3 — класс борта (source.boardClass, E2.2).
-// Старые снимки читаются: манёвров нет, класс — 5" (по умолчанию)
-export const SNAPSHOT_VERSION = 3;
+// 2 — добавлены манёвры (flight.maneuvers, A2); 3 — класс борта (source.boardClass, E2.2);
+// 4 — итог автотюна (autotune: пропы, ощущения, вердикт).
+// Старые снимки читаются: манёвров нет, класс — 5" (по умолчанию), автотюна не было
+export const SNAPSHOT_VERSION = 4;
 
 export interface SnapshotSource {
   fileName: string;
@@ -112,6 +114,8 @@ export interface SessionSnapshot {
   pid: { axes: SnapStep[] } | null;
   advice: Pick<Advice, 'id' | 'version' | 'kind' | 'severity' | 'selected' | 'deferred' | 'inputs' | 'changes' | 'from'>[];
   plan: PlanSnapshot | null;
+  /** автотюн: пропы и ощущения пилота, вердикт по полёту (с версии 4; нет — советы без автотюна) */
+  autotune?: AutotuneSummary;
 }
 
 const r1 = (x: number): number => Math.round(x * 10) / 10;
@@ -257,6 +261,7 @@ export function buildSnapshot(x: SnapshotInput): SessionSnapshot {
       })),
     } : null,
     advice: adv ? adv.advice.map((a) => ({ id: a.id, version: a.version, kind: a.kind, severity: a.severity, selected: a.selected, deferred: a.deferred, inputs: a.inputs, changes: a.changes, from: a.from })) : [],
+    autotune: adv?.autotune,
     plan: adv && Object.keys(adv.to).length ? {
       from: adv.from,
       to: adv.to,

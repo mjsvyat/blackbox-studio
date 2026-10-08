@@ -1,6 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import { viteSingleFile } from 'vite-plugin-singlefile';
-import pkg from './package.json';
+import pkg from './package.json' with { type: 'json' };
 
 // `npm run dev`   — dev-сервер с горячей перезагрузкой (подсказки из src/content/*.md
 //                   подхватываются на лету).
