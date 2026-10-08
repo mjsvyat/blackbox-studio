@@ -1,0 +1,11 @@
+name: Идея
+description: Чего не хватает при разборе или настройке
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что хочется
+      description: Какую задачу на поле или за столом это решит
+    validations:
+      required: true

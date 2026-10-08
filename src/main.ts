@@ -1,4 +1,5 @@
 import './ui/styles.css';
+import { APP_VERSION } from './version';
 import { T } from './i18n/ru';
 import { clear, fmtTime, h } from './ui/dom';
 import { helpBtn, openGlossary } from './ui/help';
@@ -68,7 +69,7 @@ function renderTopbar(): void {
           `№${l.index} · ${l.datetime.slice(0, 16).replace('T', ' ')} · ${l.durationS !== null ? fmtTime(l.durationS) : '?'}${l.empty ? ' (пустой)' : ''}`)))
     : null;
   topbar.append(
-    h('h1', null, T.appTitle),
+    h('h1', null, T.appTitle, h('span', { class: 'app-ver', title: T.versionHint }, APP_VERSION)),
     h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
     h('span', { class: 'file-name' }, state.fileName ?? T.noFile),
     sel ?? "",

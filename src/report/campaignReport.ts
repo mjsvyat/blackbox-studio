@@ -7,6 +7,7 @@ import { Campaign, iterations } from '../campaigns/campaign';
 import { Accuracy, Proposal, accuracy, historyEntry, proposeThresholds } from '../campaigns/learning';
 import type { Incident } from '../incidents/incidents';
 import { T } from '../i18n/ru';
+import { APP_VERSION } from '../version';
 import { cliValue } from '../params/registry';
 import type { Project, SessionRecord } from '../sessions/db';
 
@@ -18,6 +19,8 @@ export interface CampaignExport {
   v: number;
   exportedAt: string;
   configVersion: string;
+  /** версия программы, сделавшей экспорт (с v1.08.26) */
+  appVersion?: string;
   cls: string;
   project: Pick<Project, 'id' | 'name' | 'uid' | 'craftName' | 'profile'>;
   campaign: Campaign;
@@ -52,6 +55,7 @@ export function campaignExport(c: Campaign, project: Project, sessions: SessionR
     v: CAMPAIGN_EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
     configVersion: cfg.version,
+    appVersion: APP_VERSION,
     cls,
     project: { id: project.id, name: project.name, uid: project.uid, craftName: project.craftName, profile: project.profile },
     campaign: c,
@@ -109,7 +113,7 @@ export function campaignHtml(x: CampaignExport): string {
   return `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${CSS}</style></head><body>
 <h1>${esc(title)}</h1>
 ${out.join('\n')}
-<p class="muted">${esc(L.repFooter(x.configVersion, when(x.exportedAt)))}</p>
+<p class="muted">${esc(L.repFooter(x.configVersion, when(x.exportedAt), x.appVersion ?? APP_VERSION))}</p>
 <script type="application/json" id="bb-campaign">${scriptJson(x)}</script>
 </body></html>`;
 }

@@ -1,7 +1,8 @@
 {
   "name": "blackbox-studio",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.8.26",
+  "releaseName": "1.08.26",
   "type": "module",
   "description": "Локальная утилита разбора и настройки по блэкбоксу Betaflight",
   "scripts": {
@@ -10,7 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:fast": "vitest run --exclude tests/big-dump.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "app": "npm run build && npm --prefix desktop start",
+    "app:win": "npm run build && npm --prefix desktop run dist"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

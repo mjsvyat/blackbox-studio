@@ -3,6 +3,7 @@
 
 import cfg from '../config/analysis.json';
 import { AXIS_NAMES, T } from '../i18n/ru';
+import { APP_VERSION } from '../version';
 import { cliDiff, cliValue } from '../params/registry';
 import { MetricRow, metricRows, planCheck } from '../sessions/compare';
 import type { SessionSnapshot } from '../sessions/snapshot';
@@ -65,5 +66,5 @@ export function reportHtml(s: SessionSnapshot, images: Record<string, string>, b
 <h1>${esc(title)}</h1>${header(s)}
 ${before ? compareBlock(before, s) : ''}
 ${body(s, images)}
-<p class="muted">${esc(T.rep.footer(cfg.version))}</p></body></html>`;
+<p class="muted">${esc(T.rep.footer(cfg.version, APP_VERSION))}</p></body></html>`;
 }

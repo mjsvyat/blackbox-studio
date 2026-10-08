@@ -170,6 +170,17 @@ CI **не** проверяет — делать локально перед сл
 Новый тест, которому нужен большой дамп, — только через `describe.skipIf(!hasFixture(BIG_DUMP))`,
 иначе CI покраснеет.
 
+## Программа для Windows и выпуск версии
+
+- `desktop/` — Electron вокруг `dist/index.html`. Новую логику — в страницу (`src/`), не в
+  `desktop/src/main.cjs`: там только окно, меню, выбор USB-порта (`select-serial-port`) и запрет
+  навигации. Разрешения странице не расширять без нужды.
+- Версия — в двух местах: `package.json` и `desktop/package.json` (`version` semver + `releaseName`
+  «1.08.26»), плюс раздел `## v<releaseName>` в `CHANGELOG.md` (`tests/release.test.ts`).
+- Релиз: после слияния в `main` — Actions → Release → Run workflow (или тег `v<releaseName>`);
+  собирается на Windows-раннере, текст — из CHANGELOG. PR, меняющий `desktop/`, собирает exe в
+  артефакты без релиза.
+
 ## Полезное
 
 - Проверка в браузере: `npm run dev` (порт 5181), загрузить дамп в `input[type=file]`:

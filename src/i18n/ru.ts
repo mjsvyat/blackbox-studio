@@ -28,6 +28,7 @@ const axisName = (a: number | string): string => (typeof a === 'number' ? ['ро
 
 export const T = {
   appTitle: 'Blackbox Studio',
+  versionHint: 'Версия программы. Новые версии — на странице проекта GitHub → Releases.',
   openFile: 'Открыть лог…',
   dropHint: 'Перетащи сюда файл блэкбокса (.bbl / .bfl / .txt — можно полный дамп флешки)',
   noFile: 'Файл не открыт',
@@ -750,7 +751,7 @@ export const T = {
     plan: 'План (CLI)',
     settings: 'Ключевые настройки (из заголовка)',
     plots: 'Графики',
-    footer: (v: string) => `Сделано Blackbox Studio · пороги analysis.json v${v} · отчёт открывается без интернета`,
+    footer: (v: string, app: string) => `Сделано Blackbox Studio ${app} · пороги analysis.json v${v} · отчёт открывается без интернета`,
   },
 
   inc: {
@@ -1056,7 +1057,7 @@ export const T = {
     repIters: 'Итерации',
     colNo: '№', colWhen: 'Полёт', colProposed: 'Предложено', colPlan: 'Применено', colOs: 'перерег., %', colDterm: 'D-term', colNoise: 'шум после фильтров, °/с', colTemp: 'моторы', colFeel: 'ощущения',
     repJson: 'Для разбора в Claude: все данные кампании (снимки сессий, отметки, инциденты, точность, предложения) — в этом же файле, в блоке <script type="application/json" id="bb-campaign">.',
-    repFooter: (v: string, when: string) => `Blackbox Studio · пороги analysis.json v${v} · экспорт ${when}. Прогнозы — модель, не факт.`,
+    repFooter: (v: string, when: string, app: string) => `Blackbox Studio ${app} · пороги analysis.json v${v} · экспорт ${when}. Прогнозы — модель, не факт.`,
   },
 
   video: {
