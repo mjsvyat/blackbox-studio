@@ -248,8 +248,18 @@
         "now": "автотюн (раздел autotune): правила R-AT-* и политика выбора поверх правил; без автотюна выбор прежний",
         "why": "кнопка «Автотюн»: цикл с записью на борт, «не душить», побитые пропы",
         "by": "наблюдение (просьба пилота)"
+      },
+      {
+        "version": "1.3",
+        "was": "динамический ХХ, LPF2 при pid_process_denom > 1 и выключенные фильтры D-term не проверялись",
+        "now": "правила R-SETUP-DYN-IDLE-01, R-FLT-LPF2-DENOM-01, R-FLT-DTERM-OFF-01; dynIdleRpm по классам",
+        "why": "инструкции чата Blackbox 2.0 (t.me/blackbox_two, «Drone Tune 26», «примитивный алгоритм»): дин. ХХ по размеру дрона; не отключать LPF2, если PID-цикл медленнее гироскопа; фильтры D-term обязательны",
+        "by": "docs/knowledge/blackbox_two.md"
       }
-    ]
+    ],
+    "dynIdleRpm": 25,
+    "dynIdleIdleMargin": 0.9,
+    "_unitDynIdle": "dyn_idle_min_rpm (сотни об/мин) для класса; не выше dynIdleIdleMargin × обороты статического ХХ из лога. Ориентиры — гайд Oscar Liang (7\" 14–28, 5\" 20–40, 3\" 33–66, пропы 40 мм 62–124, 31 мм 84–167); берём нижнюю половину диапазона — меньше теряется «зависание» при сбросе газа"
   },
   "compare": {
     "thrBins": 10,
@@ -418,17 +428,29 @@
       "65mm": {
         "calibrated": false,
         "like": "5in",
-        "overrides": {}
+        "overrides": {
+          "advisor": {
+            "dynIdleRpm": 90
+          }
+        }
       },
       "85mm": {
         "calibrated": false,
         "like": "5in",
-        "overrides": {}
+        "overrides": {
+          "advisor": {
+            "dynIdleRpm": 70
+          }
+        }
       },
       "3in": {
         "calibrated": false,
         "like": "5in",
-        "overrides": {}
+        "overrides": {
+          "advisor": {
+            "dynIdleRpm": 40
+          }
+        }
       },
       "5in": {
         "calibrated": true,
@@ -437,12 +459,20 @@
       "7in": {
         "calibrated": false,
         "like": "5in",
-        "overrides": {}
+        "overrides": {
+          "advisor": {
+            "dynIdleRpm": 18
+          }
+        }
       },
       "10in": {
         "calibrated": false,
         "like": "5in",
-        "overrides": {}
+        "overrides": {
+          "advisor": {
+            "dynIdleRpm": 14
+          }
+        }
       }
     },
     "_history": [
@@ -450,6 +480,11 @@
         "version": "1.3",
         "why": "раздел добавлен (E2.2): классы бортов; переопределений пока нет — данных по другим классам нет",
         "by": "наблюдение"
+      },
+      {
+        "version": "1.4",
+        "why": "первое переопределение по классам: advisor.dynIdleRpm (ориентиры Oscar Liang; 10\" — экстраполяция, проверить)",
+        "by": "docs/knowledge/blackbox_two.md"
       }
     ]
   },

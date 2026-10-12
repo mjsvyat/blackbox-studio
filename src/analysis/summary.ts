@@ -200,6 +200,7 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
         { label: 'В упоре (хоть один мотор)', value: fx(m.satPct, 1, ' %'), status: sSat, help: 'metric-motor-sat' },
         { label: 'Разброс на крейсере', value: fx(m.spreadPct, 0, ' %'), status: sSpread, help: 'metric-motor-spread' },
         { label: 'Десинки', value: String(m.desyncs), status: sDesync, help: 'metric-desync' },
+        { label: 'Обороты на холостом ходу', value: m.idleRpm !== null && m.idleRpm !== undefined ? `${Math.round(m.idleRpm)} об/мин` : '—', help: 'setup-dyn-idle' },
         { label: 'Упор гироскопа', value: clips.length ? `${clips.length} / ${clipMs.toFixed(0)} мс` : '0', status: sClip, help: 'metric-gyro-clip' },
       ],
       help: 'card-motors', tab: 'motors',

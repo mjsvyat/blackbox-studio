@@ -155,6 +155,10 @@ export function filtersView(track: (d: () => void) => void): HTMLElement {
     const extra: FilterParams = {};
     if (!sc.gyro) extra.simplified_gyro_filter = 0;
     if (!sc.dterm) extra.simplified_dterm_filter = 0;
+    // обязательные фильтры (чат Blackbox 2.0): LPF2 при PID медленнее гиро, хотя бы один фильтр D-term
+    const denom = Number(state.info?.header.pid_process_denom ?? 1) || 1;
+    if (denom > 1 && !(nb.gyro_lpf2_static_hz ?? 0)) warns.push(h('div', { class: 'panel bad' }, T.filt.warnLpf2Denom(denom), ' ', helpBtn('filter-lpf')));
+    if (!(nb.dterm_lpf1_static_hz ?? 0) && !(nb.dterm_lpf1_dyn_min_hz ?? 0) && !(nb.dterm_lpf2_static_hz ?? 0)) warns.push(h('div', { class: 'panel bad' }, T.filt.warnDtermOff, ' ', helpBtn('filter-dterm')));
     if (changed && (!sc.gyro || !sc.dterm)) warns.push(h('div', { class: 'panel warn' }, T.filt.warnSimplified));
 
     // CLI

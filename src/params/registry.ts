@@ -83,6 +83,8 @@ export const PARAMS: ParamDef[] = [
   ...pidAxis('roll', 'Ролл'),
   ...pidAxis('pitch', 'Питч'),
   ...pidAxis('yaw', 'Яв'),
+  // cli/settings.c BF (master): VAR_UINT8, PID-профиль, 0…200, сотни об/мин; 0 — динамический ХХ выключен
+  { name: 'dyn_idle_min_rpm', min: 0, max: 200, def: 0, unit: '×100 об/мин', since: V43, label: 'Динамический холостой ход (0 — выкл.)', help: 'setup-dyn-idle' },
   { name: 'simplified_pids_mode', min: 0, max: 2, def: 2, options: ['OFF', 'RP', 'RPY'], since: V43, label: 'Simplified PID: режим', help: 'pid-simplified' },
   simp('simplified_master_multiplier', 0, 'Simplified: общий множитель'),
   simp('simplified_pi_gain', 0, 'Simplified: P и I (отслеживание)'),
