@@ -182,6 +182,7 @@ CI **не** проверяет — делать локально перед сл
   навигации. Разрешения странице не расширять без нужды.
 - Версия — в двух местах: `package.json` и `desktop/package.json` (`version` semver + `releaseName`
   «1.08.26»), плюс раздел `## v<releaseName>` в `CHANGELOG.md` (`tests/release.test.ts`).
+- Подпись exe — `docs/SIGNING.md`: по секретам `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` (pfx) или `AZURE_SIGN_*` (Azure Trusted Signing); без секретов сборка неподписанная. Сертификаты и ключи в git не класть (`desktop/certs/` в .gitignore). Самоподписанный — `desktop/scripts/make-dev-cert.ps1`, ставит пользователь сам.
 - Релиз: после слияния в `main` — Actions → Release → Run workflow (или тег `v<releaseName>`);
   собирается на Windows-раннере, текст — из CHANGELOG. PR, меняющий `desktop/`, собирает exe в
   артефакты без релиза.

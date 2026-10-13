@@ -56,9 +56,30 @@ jobs:
 
       - name: Сборка программы (electron-builder)
         working-directory: desktop
+        # подпись exe — только если в Settings → Secrets заданы секреты (docs/SIGNING.md);
+        # без них сборка неподписанная, как раньше
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGN_ENDPOINT: ${{ secrets.AZURE_SIGN_ENDPOINT }}
+          AZURE_SIGN_ACCOUNT: ${{ secrets.AZURE_SIGN_ACCOUNT }}
+          AZURE_SIGN_PROFILE: ${{ secrets.AZURE_SIGN_PROFILE }}
+          AZURE_SIGN_PUBLISHER: ${{ secrets.AZURE_SIGN_PUBLISHER }}
         run: |
           npm ci
           npm run dist
+
+      - name: Проверка подписи
+        shell: pwsh
+        run: |
+          Get-ChildItem desktop/release/*.exe | ForEach-Object {
+            $s = Get-AuthenticodeSignature $_.FullName
+            "$($_.Name): $($s.Status) $($s.SignerCertificate.Subject)"
+          }
+          Get-Content desktop/release/signing.txt
 
       - name: Файлы в артефакты прогона
         uses: actions/upload-artifact@v6

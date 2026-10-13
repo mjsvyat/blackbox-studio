@@ -6,6 +6,12 @@
 //   SHA256SUMS.txt
 // Версия — одна на весь проект: корневой package.json (version — semver, releaseName — как
 // пишется в релизе: 1.08.26). Флаг --prepare-only — только скопировать страницу (npm start).
+//
+// Подпись exe (docs/SIGNING.md) — по переменным окружения, без них сборка неподписанная:
+//   CSC_LINK + CSC_KEY_PASSWORD — файл .pfx (путь или base64): купленный сертификат или
+//     самоподписанный для своих компьютеров (desktop/scripts/make-dev-cert.ps1);
+//   AZURE_SIGN_ENDPOINT + AZURE_SIGN_ACCOUNT + AZURE_SIGN_PROFILE + AZURE_SIGN_PUBLISHER (+ AZURE_TENANT_ID,
+//     AZURE_CLIENT_ID, AZURE_CLIENT_SECRET) — Azure Trusted Signing (облачная подпись, ключ не покидает Azure).
 import { Arch, build, Platform } from 'electron-builder';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -30,6 +36,12 @@ copyFileSync(page, join(desk, 'app', 'index.html'));
 if (process.argv.includes('--prepare-only')) process.exit(0);
 
 const out = join(desk, 'release');
+const env = process.env;
+const azure = env.AZURE_SIGN_ENDPOINT && env.AZURE_SIGN_ACCOUNT && env.AZURE_SIGN_PROFILE && env.AZURE_SIGN_PUBLISHER
+  ? { publisherName: env.AZURE_SIGN_PUBLISHER, endpoint: env.AZURE_SIGN_ENDPOINT, codeSigningAccountName: env.AZURE_SIGN_ACCOUNT, certificateProfileName: env.AZURE_SIGN_PROFILE }
+  : null;
+const signing = azure ? 'Azure Trusted Signing' : env.CSC_LINK || env.WIN_CSC_LINK ? 'сертификат .pfx (CSC_LINK)' : null;
+console.log(signing ? `Подпись exe: ${signing}` : 'Подпись exe: нет (CSC_LINK / AZURE_SIGN_* не заданы) — Windows покажет «Неизвестный издатель»');
 const onWindows = process.platform === 'win32';
 await build({
   projectDir: desk,
@@ -47,6 +59,7 @@ await build({
       // иконка и версия в exe ставятся rcedit — на Linux для этого нужен Wine; релиз
       // собирается на Windows (GitHub Actions), локальная Linux-сборка — только для проверки
       signAndEditExecutable: onWindows,
+      ...(azure ? { azureSignOptions: azure } : {}),
     },
     nsis: {
       oneClick: false,
@@ -70,4 +83,5 @@ copyFileSync(page, join(out, `BlackboxStudio-v${releaseName}-web.html`));
 const files = readdirSync(out).filter((f) => /\.(exe|html)$/.test(f) && f.includes(`v${releaseName}`)).sort();
 const sums = files.map((f) => `${createHash('sha256').update(readFileSync(join(out, f))).digest('hex')}  ${f}`).join('\n') + '\n';
 writeFileSync(join(out, 'SHA256SUMS.txt'), sums);
+writeFileSync(join(out, 'signing.txt'), `${signing ?? 'не подписано'}\n`);
 console.log(`\nГотово (v${releaseName}):\n${sums}`);
