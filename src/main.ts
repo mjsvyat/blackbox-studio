@@ -16,6 +16,7 @@ import { sessionsView } from './ui/views/sessions';
 import { fcView } from './ui/views/fc';
 import { campaignView, selectBoard } from './ui/views/campaign';
 import { autotuneView } from './ui/views/autotune';
+import { convertView } from './ui/views/convert';
 import { openCampaign } from './campaigns/campaign';
 import { boardFor } from './sessions/boards';
 
@@ -35,6 +36,7 @@ const TABS: { id: string; title: string; group: string; stage?: number; needsLog
   { id: 'compare', title: T.tabs.compare, group: 'history', needsLog: false },
   { id: 'campaign', title: T.tabs.campaign, group: 'history', needsLog: false },
   { id: 'fc', title: T.tabs.fc, group: 'board', needsLog: false },
+  { id: 'convert', title: T.tabs.convert, group: 'board', needsLog: false },
 ];
 const GROUPS = ['log', 'analysis', 'tune', 'history', 'board'];
 
@@ -155,6 +157,7 @@ function render(): void {
     else if (state.tab === 'fc') main.append(fcView());
     else if (state.tab === 'campaign') main.append(campaignView(track));
     else if (state.tab === 'autotune') main.append(autotuneView(() => fileInput.click()));
+    else if (state.tab === 'convert') main.append(convertView());
     else main.append(dropZone());
     return;
   }
@@ -177,6 +180,7 @@ function render(): void {
     case 'fc': main.append(fcView()); break;
     case 'campaign': main.append(campaignView(track)); break;
     case 'autotune': main.append(autotuneView(() => fileInput.click())); break;
+    case 'convert': main.append(convertView()); break;
     default:
       main.append(h('div', { class: 'placeholder' },
         h('h2', { style: 'justify-content:center' }, tab.title, helpBtn(`card-${tab.id === 'filters' ? 'filters' : 'pid'}`)),

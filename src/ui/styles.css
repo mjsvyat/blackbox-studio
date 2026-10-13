@@ -284,3 +284,7 @@ table.proto tr.ok td:first-child { color: var(--green); }
 .check-item.ok { color: var(--fg2); }
 .check-item.miss { color: var(--fg); }
 .check-item.opt { color: var(--fg3); }
+
+/* перенос настроек */
+.conv-in { width: 100%; min-height: 360px; background: var(--bg2); color: var(--fg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: 12.5px/1.45 ui-monospace, 'Cascadia Mono', Consolas, monospace; resize: vertical; }
+.conv-out { min-height: 360px; max-height: 70vh; overflow: auto; margin: 0; }
