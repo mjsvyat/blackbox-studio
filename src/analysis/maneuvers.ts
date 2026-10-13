@@ -13,6 +13,12 @@ export interface ManeuverCount {
   flips: [number, number];
   punches: number;
   chops: number;
+  /** плавные протяжки газа снизу до верха (для фильтров); в старых снимках поля нет */
+  sweeps?: number;
+  /** резкие «снапы» стиком: [ролл, питч, яв] (для PID) */
+  snaps?: [number, number, number];
+  /** вращения по яву ≥ yawSpin.minDeg */
+  yawSpins?: number;
 }
 
 export function countManeuvers(c: LogContext, mask: Uint8Array): ManeuverCount {
@@ -78,6 +84,63 @@ export function countManeuvers(c: LogContext, mask: Uint8Array): ManeuverCount {
     }
     return cnt;
   };
+  // плавная протяжка газа: снизу (< fromPct) до верха (> toPct) не быстрее minS — шум по всему газу
+  const T = P.sweep;
+  let sweeps = 0;
+  {
+    let lowAt = -1;
+    for (let i = 0; i < n; i++) {
+      const t = thrPct[i];
+      if (t < T.fromPct) lowAt = i;
+      else if (t > T.toPct && lowAt >= 0) {
+        if (i - lowAt >= T.minS * fs && mask[i]) sweeps++;
+        lowAt = -1;
+      }
+    }
+  }
+
+  // снап: |setpoint| из < lowDps в > highDps за ≤ riseS и обратно, весь импульс ≤ maxS
+  const S = P.snap;
+  const snaps: [number, number, number] = [0, 0, 0];
+  sp.forEach((s, a) => {
+    if (!s) return;
+    const hi = a === 2 ? S.highDpsYaw : S.highDps;
+    let lowAt = -1, peakAt = -1;
+    for (let i = 0; i < n; i++) {
+      const v = Math.abs(s[i]);
+      if (peakAt < 0) {
+        if (v < S.lowDps) lowAt = i;
+        else if (v > hi && lowAt >= 0 && i - lowAt <= S.riseS * fs && mask[i]) peakAt = i;
+      } else if (v < S.lowDps) {
+        if (i - lowAt <= S.maxS * fs) snaps[a]++;
+        peakAt = -1;
+        lowAt = i;
+      } else if (i - lowAt > S.maxS * fs) {
+        peakAt = -1;
+        lowAt = -1;
+      }
+    }
+  });
+
+  // вращение по яву: непрерывно быстрее rateDps, угол ≥ minDeg
+  const Y = P.yawSpin;
+  let yawSpins = 0;
+  const gz = col(c.log, 'gyroADC[2]');
+  if (gz) {
+    let ang = 0, last = -1, start = -1;
+    for (let i = 0; i <= n; i++) {
+      const fast = i < n && mask[i] && Math.abs(gz[i]) > Y.rateDps && (start < 0 || Math.sign(gz[i]) === Math.sign(ang));
+      if (fast) {
+        if (start < 0) start = i;
+        ang += gz[i] / fs;
+        last = i;
+      } else if (start >= 0 && (i === n || i - last > gap)) {
+        if (Math.abs(ang) >= Y.minDeg) yawSpins++;
+        ang = 0;
+        start = -1;
+      }
+    }
+  }
   const r1 = (x: number): number => Math.round(x * 10) / 10;
   return {
     hoverS: r1(hoverS),
@@ -85,5 +148,6 @@ export function countManeuvers(c: LogContext, mask: Uint8Array): ManeuverCount {
     flips,
     punches: sweep(P.punch.fromPct, P.punch.toPct, P.punch.maxS, true),
     chops: sweep(P.chop.fromPct, P.chop.toPct, P.chop.maxS, false),
+    sweeps, snaps, yawSpins,
   };
 }

@@ -19,6 +19,9 @@ import { HealthResult, analyzeHealth } from './health';
 import { ManeuverCount, countManeuvers } from './maneuvers';
 import { NoiseResult, analyzeNoise } from './noise';
 import { Card, LogMeta, buildSummary } from './summary';
+import { isBenchTest } from './bench';
+import { LogCheck, checkLog } from './logcheck';
+export { isBenchTest } from './bench';
 
 export interface Analysis {
   c: LogContext;
@@ -29,6 +32,8 @@ export interface Analysis {
   pid: PidResult | null;
   /** манёвры для протокола тестового полёта (A2) */
   maneuvers: ManeuverCount;
+  /** хватает ли данных для фильтров и PID, что долетать */
+  logCheck: LogCheck;
   /** модель оси для прогноза PID (null — не построена); по chirp, если он был (C) */
   sysid: Sysid | null;
   /** частотные характеристики, запасы, chirp (C); null — не посчитано */
@@ -88,7 +93,8 @@ export function analyzeLog(c: LogContext, range: { t0: number; t1: number } | nu
   }
   const cards = buildSummary(c, fm, nz, h, meta, filters?.base ?? null, pid);
   const maneuvers = countManeuvers(c, fm.mask);
-  return { c, fm, nz, h, filters, pid, maneuvers, sysid, chirp, cards };
+  const logCheck = checkLog(c, maneuvers, throttleTop(c, fm.mask));
+  return { c, fm, nz, h, filters, pid, maneuvers, logCheck, sysid, chirp, cards };
 }
 
 /** советы + ожидаемый эффект советов по фильтрам (точная модель, как в песочнице) */
@@ -126,21 +132,6 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
     }
   }
   return res;
-}
-
-/**
- * Тест моторов на столе (blackbox_mode = MOTOR_TEST, моторы крутят ползунками конфигуратора):
- * моторы крутятся, а стик газа на нуле. Такой лог — про шум гиро от моторов, не про полёт.
- */
-export function isBenchTest(c: LogContext): boolean {
-  const A = cfg.advisor;
-  let spin = 0, low = 0;
-  for (let i = 0; i < c.n; i += 4) {
-    if (c.motorAvg[i] < A.benchMotorMin) continue;
-    spin++;
-    if (c.thrPct[i] < A.benchThrMaxPct) low++;
-  }
-  return spin * 4 >= c.fs * A.benchMinS && low >= spin * A.benchShare;
 }
 
 /** верх газа в маске полёта (99-й перцентиль, %, без одиночных выбросов); null — полёта нет */

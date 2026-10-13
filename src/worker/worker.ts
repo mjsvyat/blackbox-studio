@@ -183,6 +183,7 @@ function analyze(): AnalysisPayload {
   return {
     cls: classInfo(activeClass()),
     cards,
+    logCheck: A.logCheck,
     maskSegments: fm.segments.map((s) => [c.tSec[s.i0], c.tSec[s.i1 - 1]] as [number, number]),
     maskSeconds: fm.seconds,
     excluded: fm.excluded,

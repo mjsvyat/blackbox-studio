@@ -274,3 +274,13 @@ table.proto tr.ok td:first-child { color: var(--green); }
 .board-list { position: absolute; right: 0; top: 30px; z-index: 40; min-width: 300px; max-height: 70vh; overflow: auto; background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); padding: 6px; }
 .board-item { padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .board-item:hover, .board-item.active { background: var(--bg3); }
+
+/* «Хватает ли данных в логе» */
+.check .lead { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.check-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 22px; }
+.check-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.check-head .st-label { margin-left: auto; }
+.check-item { font-size: 13px; color: var(--fg2); padding: 1px 0; }
+.check-item.ok { color: var(--fg2); }
+.check-item.miss { color: var(--fg); }
+.check-item.opt { color: var(--fg3); }

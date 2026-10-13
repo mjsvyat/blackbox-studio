@@ -7,6 +7,7 @@ import { FlightMask } from './flightMask';
 import { HealthResult } from './health';
 import { NoiseResult } from './noise';
 import type { FilterBaseline } from '../filters/evaluate';
+import { isBenchTest } from './bench';
 import type { PidResult } from '../pid/analyze';
 
 export type Status = 'green' | 'yellow' | 'red' | 'grey';
@@ -55,6 +56,8 @@ const capYellow = (s: Status): Status => (s === 'red' ? 'yellow' : s);
 export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h: HealthResult, meta: LogMeta, fb: FilterBaseline | null = null, pid: PidResult | null = null): Card[] {
   const cards: Card[] = [];
   const enough = fm.seconds >= 3 && nz.segments >= 2;
+  // тест моторов на столе: тяга, разброс, питание и PID не оцениваются (карточки серые)
+  const bench = isBenchTest(ctx);
 
   // --- шумы ---
   {
@@ -189,7 +192,7 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     const clipMs = clips.reduce((s, a) => s + (a.value ?? 0), 0);
     const sDesync: Status = m.desyncs > 0 ? 'red' : 'green';
     const sClip: Status = clips.length ? 'red' : 'green';
-    const status = enough ? worst(sSat, sSpread === 'grey' ? 'green' : sSpread, sDesync, sClip) : 'grey';
+    const status = bench ? 'grey' : enough ? worst(sSat, sSpread === 'grey' ? 'green' : sSpread, sDesync, sClip) : 'grey';
     // фразы по убыванию серьёзности: первая — главная
     const found: { s: Status; text: string }[] = [];
     if (clips.length) found.push({ s: sClip, text: T.phrase.gyroClip(clips.length, clipMs) });
@@ -198,7 +201,8 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     if (rank[sSpread] >= 1 && m.heaviest !== null) found.push({ s: sSpread, text: T.phrase.motorsSpread(m.spreadPct!, m.heaviest) });
     found.sort((a, b) => rank[b.s] - rank[a.s]);
     const extra = found.map((f) => f.text);
-    const phrase = extra.shift() ?? (enough ? T.phrase.motorsOk(m.satPct) : T.phrase.noData);
+    const phrase = bench ? T.phrase.bench : extra.shift() ?? (enough ? T.phrase.motorsOk(m.satPct) : T.phrase.noData);
+    if (bench) extra.length = 0;
     cards.push({
       id: 'motors', title: T.card.motors, status, phrase, extra,
       metrics: [
@@ -222,7 +226,7 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     const sRip = lowIsGood(p.rippleP99, { green: P.rippleP99.green * rScale, red: P.rippleP99.red * rScale });
     // сопротивление считается по датчику тока, который на многих бортах не откалиброван: не выше жёлтого
     const sR = capYellow(lowIsGood(p.resistanceMOhm, { green: P.resistanceMOhm.green * rScale, red: P.resistanceMOhm.red * rScale }));
-    const status = enough ? worst(...[sCell, sRip, sR].filter((s) => s !== 'grey')) : 'grey';
+    const status = enough && !bench ? worst(...[sCell, sRip, sR].filter((s) => s !== 'grey')) : 'grey';
     const extra: string[] = [];
     if (rank[sCell] >= 1) extra.push(T.phrase.powerSag(p.minCell!));
     if (rank[sRip] >= 1) extra.push(T.phrase.powerRipple(p.rippleP99!));

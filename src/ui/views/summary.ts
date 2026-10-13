@@ -41,7 +41,7 @@ export function summaryView(): HTMLElement {
         : null,
     );
   }));
-  return h('div', null, h('h2', null, T.summary.title), meta, exLine, hero(), uncal, lowData, warn, cards);
+  return h('div', null, h('h2', null, T.summary.title), meta, exLine, hero(), logCheckPanel(), uncal, lowData, warn, cards);
 }
 
 /** общий светофор по карточкам + до трёх советов, выбранных на эту итерацию */
@@ -60,4 +60,18 @@ function hero(): HTMLElement {
     h('span', { class: `big-dot ${worst}` }),
     h('div', null, h('div', { class: 'lead' }, T.summary.mainTitle), body),
     R && top.length ? h('button', { class: 'btn primary small', onclick: () => set({ tab: 'tuning' }) }, T.summary.toAdvice) : h('span'));
+}
+
+/** «Хватает ли данных»: что по логу можно оценить и что долетать (тестовый пак) */
+function logCheckPanel(): HTMLElement | null {
+  const lc = state.analysis?.logCheck;
+  if (!lc) return null;
+  if (lc.bench) return h('div', { class: 'panel warn' }, T.check.bench);
+  const part = (title: string, p: { label?: string; ok: boolean; items: { id: string; have: number; need: number; ok: boolean; optional?: boolean }[] }): HTMLElement =>
+    h('div', { class: 'check-part' },
+      h('div', { class: 'check-head' }, h('span', { class: `dot ${p.ok ? 'green' : 'yellow'}` }), h('b', null, title), h('span', { class: 'st-label' }, p.label ?? (p.ok ? T.check.ok : T.check.miss))),
+      p.items.map((x) => h('div', { class: `check-item ${x.ok ? 'ok' : x.optional ? 'opt' : 'miss'}` }, x.ok ? '✓ ' : x.optional ? '· ' : '✗ ', T.check.items[x.id](x.have, x.need))));
+  return h('div', { class: 'panel check' },
+    h('div', { class: 'lead', style: 'margin-bottom:8px' }, T.check.title, ' ', helpBtn('test-flight')),
+    h('div', { class: 'check-grid' }, part(T.check.filters, lc.filters), part(T.check.pid, lc.pid), part(T.check.extra, { label: T.check.optional, ok: true, items: lc.extra })));
 }
