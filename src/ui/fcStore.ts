@@ -1,6 +1,7 @@
 // Полётник по USB: состояние вкладки и действия (подключение, стирание, скачивание флешки).
 // Протокол — src/fc/. Здесь только связь с интерфейсом.
 
+import { loggingSetup } from '../fc/logging';
 import { FcClient, FcError, FcInfo, SerialLink, checkCompat, expectedOf, readValues, rollbackLines, verifyValues } from '../fc/client';
 import { reopenLink, requestLink } from '../fc/webSerial';
 import { T } from '../i18n/ru';
@@ -295,6 +296,18 @@ export async function fcReadSettings(): Promise<void> {
  * параметры, которые меняются относительно лога (from): остальное на борту не трогаем, даже если
  * после полёта его уже поменяли.
  */
+/**
+ * Подготовить борт к записи лога (как автонастройка у fpvpidtune.com): частота записи ≥ 1.6 кГц
+ * (доля циклов PID по текущему циклу), до 4.5 — debug_mode = GYRO_SCALED (гиро до фильтров).
+ * Показывается как обычное «применить» — запись по кнопке, откат вернёт как было.
+ */
+export function fcPrepareLogging(): void {
+  const fc = state.fc;
+  if (!fc.info || !fc.status) return;
+  set({ fc: { ...fc, pending: { to: loggingSetup(fwCodeOf(fc.info.version), fc.status.cycleTimeUs), source: 'logging' }, applyRows: [] } });
+}
+
+
 export function fcPrepare(from: Record<string, number>, to: Record<string, number>, source: string): void {
   const ch: Record<string, number> = {};
   for (const [k, v] of Object.entries(to)) if (from[k] !== v) ch[k] = v;

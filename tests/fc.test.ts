@@ -296,7 +296,7 @@ describe('CLI: настройки с борта и применение (B4–B5
 
   it('белый список CLI: set — только параметры справочника и значения своего типа', async () => {
     // параметры вне справочника — даже безобидные на вид — не пишем
-    for (const l of ['set motor_pwm_protocol = DSHOT600', 'set mixer_type = LEGACY', 'set dshot_bidir = OFF', 'set motor_poles = 12', 'set craft_name = test', 'set serialrx_provider = CRSF', 'set blackbox_sample_rate = 1/2'])
+    for (const l of ['set motor_pwm_protocol = DSHOT600', 'set mixer_type = LEGACY', 'set dshot_bidir = OFF', 'set motor_poles = 12', 'set craft_name = test', 'set serialrx_provider = CRSF', 'set blackbox_device = SPIFLASH'])
       expect(cliAllowed(l), l).toBe(false);
     // значение не своего типа
     for (const l of ['set gyro_lpf1_type = FOO', 'set rates_type = 3', 'set d_roll = ON', 'set d_roll = 1e3'])
@@ -328,5 +328,17 @@ describe('CLI: настройки с борта и применение (B4–B5
       const v = def!.options ? def!.options[0] : String(def!.def);
       expect(cliAllowed(`set ${n} = ${v}`), n).toBe(true);
     }
+  });
+});
+
+describe('подготовка записи лога', () => {
+  it('частота записи ≥ 1.6 кГц под цикл PID, debug GYRO_SCALED только до 4.5', async () => {
+    const { loggingSetup } = await import('../src/fc/logging');
+    expect(loggingSetup(2_026_006_001, 125)).toEqual({ blackbox_sample_rate: 2 }); // 8 кГц → 1/4 = 2 кГц
+    expect(loggingSetup(4_005_002, 250)).toEqual({ blackbox_sample_rate: 1 }); // 4 кГц → 1/2
+    expect(loggingSetup(4_004_003, 312)).toEqual({ blackbox_sample_rate: 1, debug_mode: 6 }); // 3.2 кГц (BMI270) → 1/2
+    expect(cliAllowed('set blackbox_sample_rate = 1/4')).toBe(true);
+    expect(cliAllowed('set debug_mode = GYRO_SCALED')).toBe(true);
+    expect(cliAllowed('set debug_mode = FFT_FREQ')).toBe(false);
   });
 });

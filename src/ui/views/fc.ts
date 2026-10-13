@@ -6,7 +6,7 @@ import { cliDiff, cliValue } from '../../params/registry';
 import { cliFromHeader } from '../../sessions/snapshot';
 import { T } from '../../i18n/ru';
 import { fmtBytes, fmtTime, h } from '../dom';
-import { fcApply, fcCancel, fcConnect, fcDisconnect, fcDownload, fcDownloadBackup, fcDropPending, fcErase, fcOpenDownloaded, fcPropsOk, fcReadSettings, fcRefresh, fcRollback, fcSaveDownloaded, fwCodeOf, lastErase } from '../fcStore';
+import { fcPrepareLogging, fcApply, fcCancel, fcConnect, fcDisconnect, fcDownload, fcDownloadBackup, fcDropPending, fcErase, fcOpenDownloaded, fcPropsOk, fcReadSettings, fcRefresh, fcRollback, fcSaveDownloaded, fwCodeOf, lastErase } from '../fcStore';
 import { helpBtn } from '../help';
 import { state } from '../store';
 
@@ -145,6 +145,7 @@ function settingsPanel(): HTMLElement {
   const reading = fc.busy?.kind === 'settings';
   box.append(h('div', { class: 'row' },
     h('button', { class: 'btn', disabled: !!fc.busy || (fc.status?.armed ?? true), onclick: () => fcReadSettings() }, reading ? T.fc.reading : T.fc.read),
+    h('button', { class: 'btn', disabled: !!fc.busy || !fc.status, title: T.fc.logSetupHint, onclick: () => fcPrepareLogging() }, T.fc.logSetup),
     s ? h('button', { class: 'btn small', onclick: () => fcDownloadBackup(s.diffAll, `diff_all_${(info.craftName || info.boardName || 'fc').replace(/[^\w.-]+/g, '_')}_${s.readAt.slice(0, 19).replace(/[:T]/g, '-')}.txt`) }, T.fc.backup) : '',
     s ? h('span', { class: 'muted small' }, T.fc.readAt(stamp(s.readAt), Object.keys(s.values).length, s.pidProfile, s.rateProfile)) : ''));
   if (s && state.info) {
