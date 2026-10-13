@@ -71,7 +71,9 @@ export interface AdvisorInput {
   /** знание о борте (профиль и история, этап 6) */
   board?: BoardKnowledge;
   /** настройка борта из заголовка лога и замеры, не связанные с полётом */
-  setup?: { dynIdle: number | null; bidir: boolean; pidDenom: number; idleRpm: number | null };
+  setup?: { dynIdle: number | null; bidir: boolean | null; pidDenom: number; idleRpm: number | null };
+  /** верх газа в полёте (99-й перцентиль, %) и задержка фильтров гиро на 100 Гц (мс) */
+  flight?: { thrTop: number | null; gyroDelayMs: number | null; bench?: boolean };
   /** запасы устойчивости, которым можно верить (C: chirp или когерентный полёт) */
   stability?: { axis: number; pmDeg: number | null; gmDb: number | null; crossHz: number; source: 'chirp' | 'flight' }[];
 }
@@ -218,7 +220,8 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
       const ch = filterChange(p, 'gyro', -1);
       add(c, { id: 'R-FLT-GYRO-NOISY-01', version: 1, kind: 'tune', severity: 'red', inputs: { filt: +fMax.toFixed(2), red: N.filtRms.red, axis: nz.filt.indexOf(fMax) }, tab: 'filters', priority: 11, ...ch });
     }
-    const clean = fl.status === 'green' && isNum(fMax) && fMax < N.filtRms.green && (!isNum(unfMax) || unfMax < N.unfiltRms.green) && isNum(dMax) && dMax < A.dtermRms.green;
+    const fullThr = !isNum(inp.flight?.thrTop) || inp.flight!.thrTop! >= A.fullThrottlePct;
+    const clean = fullThr && fl.status === 'green' && isNum(fMax) && fMax < N.filtRms.green && (!isNum(unfMax) || unfMax < N.unfiltRms.green) && isNum(dMax) && dMax < A.dtermRms.green;
     if (clean && (p.simplified_gyro_filter_multiplier ?? 100) < 200) {
       const ch = filterChange(p, 'gyro', 1);
       add(c, { id: 'R-FLT-GYRO-RAISE-01', version: 1, kind: 'tune', severity: 'info', inputs: { filt: +fMax.toFixed(2), green: N.filtRms.green, dterm: +dMax.toFixed(1) }, tab: 'filters', priority: 40, safety: true, ...ch });
@@ -239,6 +242,25 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     }
   }
 
+  // ---------- ориентиры чата Blackbox 2.0 (docs/knowledge/blackbox_two.md) ----------
+  // лог без полного газа: шум на верхах не виден — ослаблять фильтры по нему нельзя
+  const thrTop = inp.flight?.thrTop;
+  if (isNum(thrTop) && thrTop < A.fullThrottlePct) add(c, { id: 'R-LOG-THROTTLE-01', version: 1, kind: 'info', severity: 'yellow', inputs: { top: Math.round(thrTop), need: A.fullThrottlePct }, tab: 'noise', priority: 92 });
+  if (fl && nz && modelOk) {
+    const p = fl.params;
+    // фильтр гиро с срезом ниже полосы управления (5": 100 Гц): задержка → PID «регулирует прошлое»
+    const lows = ['gyro_lpf1_static_hz', 'gyro_lpf1_dyn_min_hz', 'gyro_lpf2_static_hz'].filter((k) => isNum(p[k]) && p[k] > 0 && p[k] < A.minGyroCutoffHz);
+    if (lows.length && !mechNoise && !(isNum(fMax) && fMax >= N.filtRms.red)) {
+      const from: Record<string, number> = {}, changes: Record<string, number> = {};
+      for (const k of lows) { from[k] = p[k]; changes[k] = clampParam(k, A.minGyroCutoffHz); }
+      if (isNum(p.gyro_lpf1_dyn_max_hz) && p.gyro_lpf1_dyn_max_hz > 0 && changes.gyro_lpf1_dyn_min_hz && p.gyro_lpf1_dyn_max_hz < changes.gyro_lpf1_dyn_min_hz) { from.gyro_lpf1_dyn_max_hz = p.gyro_lpf1_dyn_max_hz; changes.gyro_lpf1_dyn_max_hz = clampParam('gyro_lpf1_dyn_max_hz', A.minGyroCutoffHz * 2); }
+      add(c, { id: 'R-FLT-LOWCUT-01', version: 1, kind: 'tune', severity: 'yellow', inputs: { hz: Math.min(...lows.map((k) => p[k])), min: A.minGyroCutoffHz, cls: inp.board?.cls ?? '5in' }, tab: 'filters', priority: 13, safety: true, from, changes });
+    }
+    // задержка фильтров гиро выше ориентира для размера — только сведения: решать по шуму и моторам
+    const gd = inp.flight?.gyroDelayMs;
+    if (isNum(gd) && gd > A.gyroDelayTargetMs) add(c, { id: 'R-FLT-DELAY-01', version: 1, kind: 'info', severity: 'info', inputs: { ms: +gd.toFixed(2), target: A.gyroDelayTargetMs, cls: inp.board?.cls ?? '5in' }, tab: 'filters', priority: 60 });
+  }
+
   // ---------- обязательные фильтры (чат Blackbox 2.0) ----------
   // Это усиление фильтров, а не ослабление: можно и по редкому логу, и без зелёной модели.
   if (fl) {
@@ -246,15 +268,17 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     const su = inp.setup;
     // PID-цикл медленнее гироскопа (pid_process_denom > 1): без LPF2 шум между частотами
     // гироскопа и PID «отражается» вниз при прореживании — LPF2 не отключать
-    if (su && su.pidDenom > 1 && !(p.gyro_lpf2_static_hz ?? 0)) {
+    if (su && su.pidDenom > 1 && p.gyro_lpf2_static_hz === 0) {
       const v = p.simplified_gyro_filter ? applySimplified({ ...p, gyro_lpf2_static_hz: 1 }).gyro_lpf2_static_hz : 500;
-      add(c, { id: 'R-FLT-LPF2-DENOM-01', version: 1, kind: 'tune', severity: 'yellow', inputs: { denom: su.pidDenom, hz: v }, tab: 'filters', priority: 9, from: { gyro_lpf2_static_hz: 0 }, changes: { gyro_lpf2_static_hz: clampParam('gyro_lpf2_static_hz', v) } });
+      add(c, { id: 'R-FLT-LPF2-DENOM-01', version: 2, kind: 'tune', severity: 'yellow', inputs: { denom: su.pidDenom, hz: v }, tab: 'filters', priority: 9, from: { gyro_lpf2_static_hz: 0 }, changes: { gyro_lpf2_static_hz: clampParam('gyro_lpf2_static_hz', v) } });
     }
     // фильтры D-term выключены целиком: D отдаёт моторам весь шум
-    const dOff = !(p.dterm_lpf1_static_hz ?? 0) && !(p.dterm_lpf1_dyn_min_hz ?? 0) && !(p.dterm_lpf2_static_hz ?? 0);
+    // (срезы должны быть в заголовке: лог без настроек фильтров — не «всё выключено»)
+    const dKnown = p.dterm_lpf1_static_hz !== undefined && p.dterm_lpf2_static_hz !== undefined;
+    const dOff = dKnown && !(p.dterm_lpf1_static_hz ?? 0) && !(p.dterm_lpf1_dyn_min_hz ?? 0) && !(p.dterm_lpf2_static_hz ?? 0);
     if (dOff) {
       const v = p.simplified_dterm_filter ? applySimplified({ ...p, dterm_lpf1_static_hz: 1 }).dterm_lpf1_static_hz : 75;
-      add(c, { id: 'R-FLT-DTERM-OFF-01', version: 1, kind: 'tune', severity: 'red', inputs: { hz: v }, tab: 'filters', priority: 8, from: { dterm_lpf1_static_hz: 0 }, changes: { dterm_lpf1_static_hz: clampParam('dterm_lpf1_static_hz', v) } });
+      add(c, { id: 'R-FLT-DTERM-OFF-01', version: 2, kind: 'tune', severity: 'red', inputs: { hz: v }, tab: 'filters', priority: 8, from: { dterm_lpf1_static_hz: 0 }, changes: { dterm_lpf1_static_hz: clampParam('dterm_lpf1_static_hz', v) } });
     }
   }
 
@@ -262,7 +286,10 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
   // динамический холостой ход выключен при bidirectional DShot: стартовое значение по классу,
   // но ниже оборотов статического ХХ (иначе в конфигураторе «Dynamic Idle должен быть меньше Dshot Idle»)
   const su = inp.setup;
-  if (su && su.bidir && su.dynIdle === 0) {
+  // без bidirectional DShot нет RPM-фильтров — самый частый совет экспертов чата
+  if (su && su.bidir === false) add(c, { id: 'R-SETUP-BIDIR-01', version: 1, kind: 'info', severity: 'yellow', inputs: {}, tab: 'motors', priority: 31 });
+  // 1–2S: дин. ХХ в чате советуют не включать (рискованно для регуля) — поднимают статический ХХ
+  if (su && su.bidir && su.dynIdle === 0 && !(inp.power.cells > 0 && inp.power.cells <= A.dynIdleMinCells - 1)) {
     let v = A.dynIdleRpm;
     let capped = false;
     if (isNum(su.idleRpm) && su.idleRpm > 0) {
@@ -270,7 +297,7 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
       if (cap < v) { v = cap; capped = true; }
     }
     if (v >= 5) {
-      add(c, { id: 'R-SETUP-DYN-IDLE-01', version: 1, kind: 'tune', severity: 'info', inputs: { v, rpm: v * 100, idle: isNum(su.idleRpm) ? Math.round(su.idleRpm) : '—', capped: capped ? 1 : 0, cls: inp.board?.cls ?? '5in' }, tab: 'motors', priority: 30, from: { dyn_idle_min_rpm: 0 }, changes: { dyn_idle_min_rpm: clampParam('dyn_idle_min_rpm', v) } });
+      add(c, { id: 'R-SETUP-DYN-IDLE-01', version: 2, kind: 'tune', severity: 'info', inputs: { v, rpm: v * 100, idle: isNum(su.idleRpm) ? Math.round(su.idleRpm) : '—', capped: capped ? 1 : 0, cls: inp.board?.cls ?? '5in' }, tab: 'motors', priority: 30, from: { dyn_idle_min_rpm: 0 }, changes: { dyn_idle_min_rpm: clampParam('dyn_idle_min_rpm', v) } });
     }
   }
 
@@ -311,6 +338,15 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
   const stabilityBlock = !!pmLow || !!gmLow;
   if (pmLow) add(c, { id: 'R-STAB-PM-LOW-01', version: 1, kind: 'info', severity: pmLow.pmDeg! < SB.pm.red ? 'red' : 'yellow', inputs: { axis: pmLow.axis, pm: Math.round(pmLow.pmDeg!), green: SB.pm.green, red: SB.pm.red, hz: Math.round(pmLow.crossHz), src: pmLow.source }, tab: 'filters', priority: 5 });
   if (gmLow && pid) add(c, { id: 'R-STAB-GM-LOW-01', version: 1, kind: 'tune', severity: 'red', inputs: { axis: gmLow.axis, gm: +gmLow.gmDb!.toFixed(1), red: SB.gm.red, src: gmLow.source }, tab: 'pid', priority: 6, ...pidChange(inp, 'pi', 'P', -1, pid.gains) });
+
+  // ---------- тест моторов на столе ----------
+  // моторы крутили из конфигуратора без пропов: тяга, разброс, питание, PID и настройки по такому
+  // логу не оцениваются (в чате на такие логи смотрят только шум гиро по моторам)
+  if (inp.flight?.bench) {
+    const keep = new Set(['R-MECH-NOISE-01', 'R-LOG-NO-UNFILT-01', 'R-LOG-RATE-01', 'R-SETUP-BIDIR-01']);
+    c.out = c.out.filter((a) => keep.has(a.id));
+    add(c, { id: 'R-LOG-BENCH-01', version: 1, kind: 'info', severity: 'yellow', inputs: {}, tab: 'noise', priority: -1 });
+  }
 
   // ---------- знание о борте: отключённые правила, правила «с осторожностью» ----------
   const off = new Set([...(A.disabledRules ?? []), ...(inp.board?.disabledRules ?? [])]);
@@ -393,7 +429,8 @@ export function setupFromHeader(H: Record<string, string>, idleRpm: number | nul
     const x = Number(v.split(',')[0]);
     return Number.isFinite(x) ? x : null;
   };
-  return { dynIdle: num('dyn_idle_min_rpm'), bidir: num('dshot_bidir') === 1, pidDenom: num('pid_process_denom') ?? 1, idleRpm };
+  const bd = num('dshot_bidir');
+  return { dynIdle: num('dyn_idle_min_rpm'), bidir: bd === null ? null : bd === 1, pidDenom: num('pid_process_denom') ?? 1, idleRpm };
 }
 
 /** упоры гироскопа не дальше clipNearImpactS от удара — это краш, а не срыв в воздухе */

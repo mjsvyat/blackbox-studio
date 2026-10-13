@@ -50,6 +50,8 @@ export function highIsGood(v: number | null | undefined, t: { green: number; red
 const fx = (v: number | null | undefined, d: number, unit = ''): string =>
   v === null || v === undefined || !Number.isFinite(v) ? '—' : `${v.toFixed(d)}${unit}`;
 
+const capYellow = (s: Status): Status => (s === 'red' ? 'yellow' : s);
+
 export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h: HealthResult, meta: LogMeta, fb: FilterBaseline | null = null, pid: PidResult | null = null): Card[] {
   const cards: Card[] = [];
   const enough = fm.seconds >= 3 && nz.segments >= 2;
@@ -101,8 +103,11 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
       const d = fb.current.delay;
       phrase = T.phrase.filtersDelay(d.gyro['100'], d.dterm['100'], redAvg);
       const worstMatch = Math.min(...v.match.filter((x) => Number.isFinite(x)));
-      // редкий лог — не проблема борта: жёлтый, а не красный
-      status = v.reason === 'low-rate' && v.status === 'red' ? 'yellow' : v.status;
+      // Цвет карточки — про борт, а не про модель. Модель не сошлась (прошивка до 4.5 с другими
+      // фильтрами, иной алгоритм) — это ограничение утилиты: серый «не оценить», а не красный.
+      // Редкий лог и нет gyroUnfilt — исправимо записью лога: жёлтый. (Разбор чата Blackbox 2.0:
+      // красный «модель не совпадает» был на 128 из 232 чужих логов, почти все — 4.3/4.4.)
+      status = v.status === 'green' ? 'green' : v.reason === 'low-rate' || v.reason === 'no-unfilt' ? 'yellow' : 'grey';
       extra.push(v.status === 'green' ? T.phrase.filtersModelOk(worstMatch) : T.phrase.filtersModelBad(worstMatch, v.reason));
       metrics.push(
         { label: 'Задержка гиро на 50 / 100 / 150 Гц', value: `${fx(d.gyro['50'], 2)} / ${fx(d.gyro['100'], 2)} / ${fx(d.gyro['150'], 2)} мс`, help: 'filter-delay' },
@@ -215,7 +220,8 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     // пороги пульсаций и сопротивления заданы для 6S — масштабируем по числу банок
     const rScale = p.cells ? p.cells / 6 : 1;
     const sRip = lowIsGood(p.rippleP99, { green: P.rippleP99.green * rScale, red: P.rippleP99.red * rScale });
-    const sR = lowIsGood(p.resistanceMOhm, { green: P.resistanceMOhm.green * rScale, red: P.resistanceMOhm.red * rScale });
+    // сопротивление считается по датчику тока, который на многих бортах не откалиброван: не выше жёлтого
+    const sR = capYellow(lowIsGood(p.resistanceMOhm, { green: P.resistanceMOhm.green * rScale, red: P.resistanceMOhm.red * rScale }));
     const status = enough ? worst(...[sCell, sRip, sR].filter((s) => s !== 'grey')) : 'grey';
     const extra: string[] = [];
     if (rank[sCell] >= 1) extra.push(T.phrase.powerSag(p.minCell!));
@@ -239,7 +245,8 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
   // --- связь ---
   {
     const L = h.link;
-    const sLow = lowIsGood(L.lowSharePct, cfg.link.lowShare);
+    // RSSI в % у разных линков (ELRS, CRSF, LQ вместо RSSI) несопоставим: не выше жёлтого; красный — только failsafe
+    const sLow = capYellow(lowIsGood(L.lowSharePct, cfg.link.lowShare));
     const sLoss: Status = L.failsafeCount ? 'red' : L.rxLossCount ? 'yellow' : 'green';
     const status = worst(sLow === 'grey' ? 'green' : sLow, sLoss);
     const parts: string[] = [];
@@ -276,7 +283,7 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
         { label: 'Потеряно данных', value: `${lostPct.toFixed(2)} %`, status: sLost, help: 'metric-lost' },
         { label: 'Кадров I / P / битых', value: `${log.frames.I} / ${log.frames.P} / ${log.frames.bad}` },
         { label: 'Частота логирования', value: `${ctx.timing.logHz.toFixed(0)} Гц (Найквист ${ctx.timing.nyquistHz.toFixed(0)} Гц)`, help: 'nyquist' },
-        { label: 'gyroUnfilt в логе', value: ctx.hasGyroUnfilt ? 'есть' : 'нет', status: ctx.hasGyroUnfilt ? 'green' : 'yellow', help: 'gyro-unfilt' },
+        { label: 'gyroUnfilt в логе', value: ctx.hasGyroUnfilt ? (ctx.unfiltFromDebug ? 'есть (debug GYRO_SCALED)' : 'есть') : 'нет', status: ctx.hasGyroUnfilt ? 'green' : 'yellow', help: 'gyro-unfilt' },
         { label: 'Конец лога', value: log.end === 'LOG_END' ? 'штатный' : 'обрезан' },
       ],
       help: 'card-integrity', tab: 'file',

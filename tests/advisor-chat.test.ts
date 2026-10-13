@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { AdvisorInput, runAdvisor, setupFromHeader } from '../src/advisor/advisor';
 import { buildContext } from '../src/analysis/context';
-import { adviseLog, analyzeLog } from '../src/analysis/pipeline';
+import { adviseLog, analyzeLog, isBenchTest } from '../src/analysis/pipeline';
 import { setBoardClass } from '../src/config/classes';
 import { decodeLog } from '../src/decoder/decoder';
 import { cliAllowed } from '../src/fc/cli';
@@ -83,6 +83,68 @@ describe('обязательные фильтры', () => {
 
   it('хотя бы один фильтр D-term есть — правило молчит', () => {
     expect(find(runAdvisor(input({}, { dterm_lpf1_static_hz: 0 })), 'R-FLT-DTERM-OFF-01')).toBeUndefined();
+  });
+});
+
+describe('разбор экспорта чата: газ, срезы, задержка, bidir, 1–2S', () => {
+  it('лог без верхов газа: подсказка, и ослаблять фильтры по нему нельзя', () => {
+    const clean = input({ noise: { unfilt: [6, 5, 4], filt: [0.5, 0.5, 0.5], dterm: [2, 2, null], peaks: [] } });
+    expect(find(runAdvisor(clean), 'R-FLT-GYRO-RAISE-01')).toBeDefined();
+    const low = runAdvisor({ ...clean, flight: { thrTop: 45, gyroDelayMs: 1 } });
+    expect(find(low, 'R-LOG-THROTTLE-01')!.inputs.top).toBe(45);
+    expect(find(low, 'R-FLT-GYRO-RAISE-01')).toBeUndefined();
+    expect(find(low, 'R-FLT-DTERM-RAISE-01')).toBeUndefined();
+    expect(find(runAdvisor({ ...clean, flight: { thrTop: 95, gyroDelayMs: 1 } }), 'R-LOG-THROTTLE-01')).toBeUndefined();
+  });
+
+  it('срез гиро ниже 100 Гц на 5" → поднять до 100 (рискованное изменение)', () => {
+    const a = find(runAdvisor(input({}, { simplified_gyro_filter: 0, gyro_lpf1_static_hz: 70, gyro_lpf2_static_hz: 500 })), 'R-FLT-LOWCUT-01')!;
+    expect(a.changes).toEqual({ gyro_lpf1_static_hz: 100 });
+    expect(a.safety).toBe(true);
+    setBoardClass('10in');
+    expect(find(runAdvisor(input({}, { simplified_gyro_filter: 0, gyro_lpf1_static_hz: 70 })), 'R-FLT-LOWCUT-01')).toBeUndefined();
+  });
+
+  it('задержка гиро выше ориентира класса — только сведения', () => {
+    const a = find(runAdvisor(input({ flight: { thrTop: 100, gyroDelayMs: 2.6 } })), 'R-FLT-DELAY-01')!;
+    expect(a.kind).toBe('info');
+    expect(a.inputs.target).toBe(2);
+    setBoardClass('3in');
+    expect(find(runAdvisor(input({ flight: { thrTop: 100, gyroDelayMs: 1.9 } })), 'R-FLT-DELAY-01')!.inputs.target).toBe(1.75);
+    setBoardClass('10in');
+    expect(find(runAdvisor(input({ flight: { thrTop: 100, gyroDelayMs: 2.6 } })), 'R-FLT-DELAY-01')).toBeUndefined();
+  });
+
+  it('bidir DShot выключен → подсказка; неизвестно (нет в заголовке) → молчим', () => {
+    expect(find(runAdvisor(input({ setup: { dynIdle: 0, bidir: false, pidDenom: 1, idleRpm: null } })), 'R-SETUP-BIDIR-01')).toBeDefined();
+    expect(find(runAdvisor(input({ setup: { dynIdle: 0, bidir: null, pidDenom: 1, idleRpm: null } })), 'R-SETUP-BIDIR-01')).toBeUndefined();
+  });
+
+  it('на 1–2S динамический ХХ не советуем', () => {
+    const off = { setup: { dynIdle: 0, bidir: true, pidDenom: 1, idleRpm: 9000 } };
+    expect(find(runAdvisor(input({ ...off, power: { resistanceMOhm: 10, rippleP99: 0.5, cells: 1 } })), 'R-SETUP-DYN-IDLE-01')).toBeUndefined();
+    expect(find(runAdvisor(input({ ...off, power: { resistanceMOhm: 10, rippleP99: 0.5, cells: 4 } })), 'R-SETUP-DYN-IDLE-01')).toBeDefined();
+  });
+
+  it('нет срезов D-term в заголовке (старый лог) — «D-term выключен» не срабатывает', () => {
+    const r = runAdvisor(input({ filters: { params: { dyn_notch_count: 1, dyn_notch_min_hz: 100, dyn_notch_max_hz: 400 }, status: 'red', reason: 'old-fw' } }));
+    expect(find(r, 'R-FLT-DTERM-OFF-01')).toBeUndefined();
+    expect(find(r, 'R-FLT-LPF2-DENOM-01')).toBeUndefined();
+  });
+});
+
+describe('тест моторов на столе (MOTOR_TEST)', () => {
+  it('стендовый лог: полётные правила молчат, есть подсказка про тест', () => {
+    const r = runAdvisor(input({ motors: { satPct: 40, spreadPct: 35, desyncs: 0, airClips: 0, clipT: [] }, flight: { thrTop: 0, gyroDelayMs: 3, bench: true } }));
+    expect(r.advice.map((a) => a.id)).toEqual(['R-LOG-BENCH-01']);
+  });
+
+  it('распознаётся по «моторы крутятся, газ на нуле»', () => {
+    const n = 20000, fs = 2000;
+    const mk = (thr: number, mot: number) => ({ n, fs, thrPct: new Float32Array(n).fill(thr), motorAvg: new Float32Array(n).fill(mot) }) as any;
+    expect(isBenchTest(mk(0, 0.4))).toBe(true);
+    expect(isBenchTest(mk(45, 0.4))).toBe(false);
+    expect(isBenchTest(mk(0, 0))).toBe(false);
   });
 });
 

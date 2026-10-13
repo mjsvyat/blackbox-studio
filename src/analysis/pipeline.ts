@@ -96,6 +96,7 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
   const { c, nz, h, filters: f } = a;
   const inp = advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header));
   if (board) inp.board = board;
+  inp.flight = { thrTop: throttleTop(c, a.fm.mask), gyroDelayMs: f ? f.base.current.delay.gyro['100'] ?? null : null, bench: isBenchTest(c) };
   // запасы устойчивости — только те, которым можно верить (когерентность у среза)
   inp.stability = (a.chirp?.axes ?? []).filter((x) => x.marginsOk && x.margins?.crossHz).map((x) => ({ axis: x.axis, pmDeg: x.margins!.pmDeg, gmDb: x.margins!.gmDb, crossHz: x.margins!.crossHz!, source: x.source }));
   const res = runAdvisor(inp, override);
@@ -125,6 +126,30 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
     }
   }
   return res;
+}
+
+/**
+ * Тест моторов на столе (blackbox_mode = MOTOR_TEST, моторы крутят ползунками конфигуратора):
+ * моторы крутятся, а стик газа на нуле. Такой лог — про шум гиро от моторов, не про полёт.
+ */
+export function isBenchTest(c: LogContext): boolean {
+  const A = cfg.advisor;
+  let spin = 0, low = 0;
+  for (let i = 0; i < c.n; i += 4) {
+    if (c.motorAvg[i] < A.benchMotorMin) continue;
+    spin++;
+    if (c.thrPct[i] < A.benchThrMaxPct) low++;
+  }
+  return spin * 4 >= c.fs * A.benchMinS && low >= spin * A.benchShare;
+}
+
+/** верх газа в маске полёта (99-й перцентиль, %, без одиночных выбросов); null — полёта нет */
+export function throttleTop(c: LogContext, mask: Uint8Array): number | null {
+  const t: number[] = [];
+  for (let i = 0; i < c.n; i += 4) if (mask[i]) t.push(c.thrPct[i]);
+  if (t.length < 50) return null;
+  t.sort((x, y) => x - y);
+  return t[Math.floor(t.length * 0.99)];
 }
 
 /** новые PID после изменений CLI (p_roll, d_max_pitch…) */
