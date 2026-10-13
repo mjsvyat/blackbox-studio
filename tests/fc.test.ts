@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MSP, MspFrame, MspParser, crc8DvbS2, encodeV1, encodeV2 } from '../src/fc/msp';
-import { FcClient, FcError, READ_CMDS, WRITE_CMDS, armingDisableList, checkCompat, rollbackLines } from '../src/fc/client';
+import { FcClient, FcError, READ_CMDS, WRITE_CMDS, armingDisableList, checkCompat, expectedOf, readValues, rollbackLines, verifyValues } from '../src/fc/client';
 import { boardNumbers, cliAllowed, effectiveValues, headerVsBoard, parseConfig, setResult } from '../src/fc/cli';
 import { FakeFc } from '../src/fc/emulator';
 import { PARAMS, paramByName } from '../src/params/registry';
@@ -223,6 +223,37 @@ describe('CLI: настройки с борта и применение (B4–B5
     expect(fc.cliReceived).not.toContain('set p_roll = 50');
     expect(fc.cliReceived.at(-1)).toBe('exit');
     expect(fc.saved.d_roll).toBe('30');
+  });
+
+  it('аккумулятор подключён — запись отклоняется до входа в CLI', async () => {
+    const fc = new FakeFc({ vbat: 16.8 });
+    const c = new FcClient(fc);
+    expect(await c.vbat()).toBeCloseTo(16.8, 2);
+    await expect(c.applySets(await c.info(), ['set d_roll = 33'])).rejects.toMatchObject({ code: 'battery' });
+    expect(fc.cliMode).toBe(false);
+    expect(fc.cliReceived).toEqual([]);
+  });
+
+  it('после записи и перезагрузки — сверка значений на борту', async () => {
+    const fc = new FakeFc();
+    const c = new FcClient(fc);
+    const lines = ['set d_roll = 33', 'set dterm_lpf1_static_hz = 70'];
+    expect((await c.applySets(await c.info(), [...lines, 'save'])).ok).toBe(true);
+    const fc2 = new FakeFc({ cli: fc.saved });
+    const c2 = new FcClient(fc2);
+    const { values } = await readValues(c2, await c2.info(), Object.keys(expectedOf(lines)));
+    expect(verifyValues(expectedOf(lines), values)).toEqual([]);
+    // борт «не сохранил» один параметр — расхождение видно
+    const fc3 = new FakeFc({ cli: { ...fc.saved, d_roll: '30' } });
+    const c3 = new FcClient(fc3);
+    const r3 = await readValues(c3, await c3.info(), ['d_roll', 'dterm_lpf1_static_hz']);
+    expect(r3.values).toEqual({ d_roll: '30', dterm_lpf1_static_hz: '70' });
+    expect(verifyValues(expectedOf(lines), r3.values)).toEqual([{ name: 'd_roll', want: '33', got: '30' }]);
+    expect(fc3.cliReceived.filter((l) => l.startsWith('set'))).toEqual([]);
+  });
+
+  it('сверка: перечисления без учёта регистра, числа как числа', () => {
+    expect(verifyValues({ rates_type: 'ACTUAL', p_roll: '45' }, { rates_type: 'actual', p_roll: '45.0' })).toEqual([]);
   });
 
   it('параметр не из справочника — отказ до входа в CLI', async () => {

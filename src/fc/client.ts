@@ -1,3 +1,4 @@
+import cfg from '../config/analysis.json';
 // Клиент полётника по MSP: чтение сведений, сводка/стирание/чтение флешки.
 // Безопасность (ТЗ, раздел B):
 //  - посылаются ТОЛЬКО команды из списков ниже; моторные (MSP_SET_MOTOR, DShot-команды,
@@ -21,7 +22,7 @@ export interface SerialLink {
 }
 
 /** команды чтения — безопасны всегда */
-export const READ_CMDS = new Set<number>([MSP.API_VERSION, MSP.FC_VARIANT, MSP.FC_VERSION, MSP.BOARD_INFO, MSP.BUILD_INFO, MSP.NAME, MSP.STATUS_EX, MSP.UID, MSP.DATAFLASH_SUMMARY, MSP.DATAFLASH_READ]);
+export const READ_CMDS = new Set<number>([MSP.ANALOG, MSP.API_VERSION, MSP.FC_VARIANT, MSP.FC_VERSION, MSP.BOARD_INFO, MSP.BUILD_INFO, MSP.NAME, MSP.STATUS_EX, MSP.UID, MSP.DATAFLASH_SUMMARY, MSP.DATAFLASH_READ]);
 /** команды записи — только disarmed и только по кнопке */
 export const WRITE_CMDS = new Set<number>([MSP.DATAFLASH_ERASE]);
 
@@ -29,7 +30,7 @@ export const MIN_API: [number, number] = [1, 46];
 
 export class FcError extends Error {
   constructor(
-    public code: 'timeout' | 'crc' | 'rejected' | 'closed' | 'armed' | 'unsupported' | 'forbidden' | 'aborted' | 'busy' | 'noflash' | 'cli',
+    public code: 'timeout' | 'crc' | 'rejected' | 'closed' | 'armed' | 'unsupported' | 'forbidden' | 'aborted' | 'busy' | 'noflash' | 'cli' | 'battery',
     msg: string,
   ) {
     super(msg);
@@ -258,6 +259,16 @@ export class FcClient {
     return { armed: (modes & 1) === 1, armingDisableFlags, armingDisableCount, rebootRequired, cpuLoad, pidProfile, rateProfile, cycleTimeUs };
   }
 
+  /** напряжение батареи, В (MSP_ANALOG; 0 — питание только от USB) */
+  async vbat(): Promise<number> {
+    const r = new Reader(await this.request(MSP.ANALOG));
+    const legacy = r.u8() / 10;
+    r.u16(); // mAh
+    r.u16(); // rssi
+    r.u16(); // ток
+    return r.left >= 2 ? r.u16() / 100 : legacy;
+  }
+
   async flashSummary(): Promise<FlashSummary> {
     const r = new Reader(await this.request(MSP.DATAFLASH_SUMMARY));
     const flags = r.u8();
@@ -457,6 +468,10 @@ export class FcClient {
   async applySets(info: Pick<FcInfo, 'variant' | 'api'>, lines: string[], onLine?: (i: number, r: { line: string; ok: boolean; error?: string }) => void): Promise<ApplyResult> {
     const sets = lines.filter((l) => l !== 'save');
     for (const l of sets) if (!setName(l) || !cliAllowed(l)) throw new FcError('forbidden', `CLI: «${l}» не входит в список разрешённых`);
+    // пишем только от USB: с аккумулятором после перезагрузки моторы под током — так же
+    // делает fpvpidtune.com (порог — analysis.json → fc.writeMaxVbat)
+    const v = await this.vbat();
+    if (v > cfg.fc.writeMaxVbat) throw new FcError('battery', `battery ${v.toFixed(1)} V`);
     await this.enterCli(info);
     const res: ApplyResult = { ok: false, diffAll: '', before: {}, results: [], at: new Date().toISOString() };
     try {
@@ -491,6 +506,40 @@ export class FcClient {
       throw e;
     }
   }
+}
+
+/** значения параметров после записи как их отдаёт CLI (`get`); null — нет такого параметра */
+export async function readValues(c: FcClient, info: Pick<FcInfo, 'variant' | 'api'>, names: string[]): Promise<{ values: Record<string, string | null>; rebooted: boolean }> {
+  await c.enterCli(info);
+  const values: Record<string, string | null> = {};
+  try {
+    for (const n of names) values[n] = getValue(await c.cli(`get ${n}`), n);
+  } catch (e) {
+    await c.exitCli(info).catch(() => undefined);
+    throw e;
+  }
+  const after = await c.exitCli(info);
+  return { values, rebooted: after === 'rebooting' };
+}
+
+/** сверка «что писали ↔ что на борту»: перечисления без учёта регистра, числа как числа */
+export function verifyValues(expected: Record<string, string>, got: Record<string, string | null>): { name: string; want: string; got: string | null }[] {
+  const same = (a: string, b: string | null): boolean => {
+    if (b === null) return false;
+    const x = Number(a), y = Number(b);
+    return Number.isFinite(x) && Number.isFinite(y) ? Math.abs(x - y) < 1e-6 : a.trim().toUpperCase() === b.trim().toUpperCase();
+  };
+  return Object.entries(expected).filter(([k, v]) => !same(v, got[k] ?? null)).map(([name, want]) => ({ name, want, got: got[name] ?? null }));
+}
+
+/** строки set … → { имя: значение } */
+export function expectedOf(lines: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const l of lines) {
+    const m = l.match(/^set\s+(\S+)\s*=\s*(.+)$/);
+    if (m) out[m[1]] = m[2].trim();
+  }
+  return out;
 }
 
 export interface BoardSettings {

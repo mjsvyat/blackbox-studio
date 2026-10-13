@@ -14,6 +14,8 @@ export const MSP = {
   BUILD_INFO: 5,
   NAME: 10,
   DATAFLASH_SUMMARY: 70,
+  /** vbat u8 (0.1 В), mAh u16, rssi u16, ток s16 (0.01 А), vbat u16 (0.01 В) — msp.c 4.5.2/2026.6.1 */
+  ANALOG: 110,
   DATAFLASH_READ: 71,
   DATAFLASH_ERASE: 72,
   STATUS_EX: 150,

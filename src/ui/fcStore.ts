@@ -1,7 +1,7 @@
 // Полётник по USB: состояние вкладки и действия (подключение, стирание, скачивание флешки).
 // Протокол — src/fc/. Здесь только связь с интерфейсом.
 
-import { FcClient, FcError, FcInfo, SerialLink, checkCompat, rollbackLines } from '../fc/client';
+import { FcClient, FcError, FcInfo, SerialLink, checkCompat, expectedOf, readValues, rollbackLines, verifyValues } from '../fc/client';
 import { reopenLink, requestLink } from '../fc/webSerial';
 import { T } from '../i18n/ru';
 import { fmtBytes } from './dom';
@@ -14,6 +14,8 @@ let abort: AbortController | null = null;
 let poll: ReturnType<typeof setInterval> | null = null;
 /** ждём перезагрузку полётника (после save / exit) — обрыв USB ожидаем, переподключаемся сами */
 let expectReboot = false;
+/** после записи и перезагрузки — сверить значения на борту с записанными */
+let verifyAfter: { expected: Record<string, string>; kind: 'apply' | 'rollback' } | null = null;
 
 function upd(p: Partial<FcUi>): void {
   set({ fc: { ...state.fc, ...p } });
@@ -24,6 +26,7 @@ function errText(e: unknown): string {
   if (c === 'timeout') return T.fc.timeout;
   if (c === 'closed') return T.fc.lost(e instanceof Error ? e.message : '');
   if (c === 'armed') return T.fc.eraseArmed;
+  if (c === 'battery') return T.fc.battery;
   if (c === 'aborted') return T.fc.aborted;
   if (e instanceof DOMException && e.name === 'SecurityError') return T.fc.securityError;
   return T.fc.error(e instanceof Error ? e.message : String(e));
@@ -256,6 +259,7 @@ async function autoReconnect(): Promise<void> {
       upd({ busy: null });
       await fcConnect(l);
       upd({ ...keep, propsOk: keep.propsOk });
+      if (verifyAfter && (state.fc.phase as string) === 'connected') await fcVerify();
       return;
     }
   }
@@ -324,6 +328,7 @@ export async function fcApply(lines: string[], kind: 'apply' | 'rollback', sourc
       rows.push(row);
       upd({ applyRows: [...rows], busy: { kind: 'apply', done: i + 1, total: lines.length, t0: fc.busy?.t0 ?? Date.now() } });
     });
+    if (r.ok) verifyAfter = { expected: expectedOf(lines), kind };
     const saved = await recordFcWrite(fc.info.uid, { at: r.at, kind, source, ok: r.ok, lines, diffAll: r.diffAll, before: r.before, error: r.error });
     upd({
       busy: null,
@@ -335,6 +340,34 @@ export async function fcApply(lines: string[], kind: 'apply' | 'rollback', sourc
   } catch (e) {
     expectReboot = false;
     upd({ busy: null, msg: { kind: 'bad', text: errText(e) } });
+  }
+}
+
+/**
+ * Сверка после записи (как «Applied and checked» у fpvpidtune.com): после перезагрузки читаем
+ * записанные параметры и сравниваем. Расхождение — красное сообщение и кнопка «Откатить»
+ * (сами не пишем: любая запись — только по нажатию пользователя).
+ */
+async function fcVerify(): Promise<void> {
+  const v = verifyAfter;
+  verifyAfter = null;
+  const fc = state.fc;
+  if (!v || !client || !fc.info) return;
+  stopPoll();
+  upd({ busy: { kind: 'settings', done: 0, total: 0, t0: Date.now() } });
+  try {
+    expectReboot = !(fc.info.api[1] >= 47 || fc.info.api[0] > 1);
+    const { values, rebooted } = await readValues(client, fc.info, Object.keys(v.expected));
+    const bad = verifyValues(v.expected, values);
+    upd({ busy: null, verified: { at: new Date().toISOString(), ok: !bad.length, bad }, msg: bad.length ? { kind: 'bad', text: T.fc.verifyBad(bad.map((b) => `${b.name}: ${b.got ?? '—'} ≠ ${b.want}`).join(', ')) } : { kind: 'ok', text: T.fc.verifyOk(Object.keys(v.expected).length) } });
+    if (!rebooted) {
+      expectReboot = false;
+      startPoll();
+    }
+  } catch (e) {
+    expectReboot = false;
+    upd({ busy: null, msg: { kind: 'warn', text: T.fc.verifyFail(errText(e)) } });
+    if (client) startPoll();
   }
 }
 
