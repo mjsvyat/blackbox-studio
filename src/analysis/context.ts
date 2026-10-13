@@ -31,10 +31,15 @@ export interface LogContext {
   acc1G: number;
   cells: number;
   hasGyroUnfilt: boolean;
+  /** gyroUnfilt взят из debug[0..2] (debug_mode = GYRO_SCALED, логи до 4.5) */
+  unfiltFromDebug: boolean;
   hasErpm: boolean;
   hasAmperage: boolean;
   warnings: string[];
 }
+
+/** debug_mode = GYRO_SCALED (номер одинаковый во всех 4.x) */
+export const DEBUG_GYRO_SCALED = 6;
 
 function median(a: number[]): number {
   if (!a.length) return NaN;
@@ -120,6 +125,16 @@ export function buildContext(log: DecodedLog): LogContext {
     }
   }
 
+  // До 4.5 gyroUnfilt в лог не пишется: гироскоп до фильтров — только в debug[0..2] при
+  // debug_mode = GYRO_SCALED (6 во всех 4.x; так велят писать логи в чате Blackbox 2.0).
+  // Проверено на логах 4.2.11 и 4.3.0: debug[0] ≈ gyroADC[0] в °/с (корреляция 0.97–0.996).
+  // Подставляем как gyroUnfilt — дальше весь анализ одинаковый.
+  let unfiltFromDebug = false;
+  if (log.index['gyroUnfilt[0]'] === undefined && H['debug_mode'] === String(DEBUG_GYRO_SCALED)
+    && [0, 1, 2].every((a) => log.index[`debug[${a}]`] !== undefined) && nonZero(col(log, 'debug[0]'))) {
+    for (const a of [0, 1, 2]) log.index[`gyroUnfilt[${a}]`] = log.index[`debug[${a}]`];
+    unfiltFromDebug = true;
+  }
   const hasGyroUnfilt = [0, 1, 2].every((a) => log.index[`gyroUnfilt[${a}]`] !== undefined) && nonZero(col(log, 'gyroUnfilt[0]'));
   const amp = col(log, 'amperageLatest');
   const hasAmperage = nonZero(amp);
@@ -136,6 +151,6 @@ export function buildContext(log: DecodedLog): LogContext {
   return {
     log, fw: parseFirmware(H), timing, measuredHz, fs, n, tSec,
     motorPoles, motorMin, motorMax, motorCount, thrPct, motorHz, motorHzEach, motorAvg, motorNorm,
-    acc1G: num(H, 'acc_1G', 2048), cells, hasGyroUnfilt, hasErpm, hasAmperage, warnings,
+    acc1G: num(H, 'acc_1G', 2048), cells, hasGyroUnfilt, unfiltFromDebug, hasErpm, hasAmperage, warnings,
   };
 }

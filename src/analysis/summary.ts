@@ -7,6 +7,7 @@ import { FlightMask } from './flightMask';
 import { HealthResult } from './health';
 import { NoiseResult } from './noise';
 import type { FilterBaseline } from '../filters/evaluate';
+import { isBenchTest } from './bench';
 import type { PidResult } from '../pid/analyze';
 
 export type Status = 'green' | 'yellow' | 'red' | 'grey';
@@ -50,9 +51,13 @@ export function highIsGood(v: number | null | undefined, t: { green: number; red
 const fx = (v: number | null | undefined, d: number, unit = ''): string =>
   v === null || v === undefined || !Number.isFinite(v) ? '—' : `${v.toFixed(d)}${unit}`;
 
+const capYellow = (s: Status): Status => (s === 'red' ? 'yellow' : s);
+
 export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h: HealthResult, meta: LogMeta, fb: FilterBaseline | null = null, pid: PidResult | null = null): Card[] {
   const cards: Card[] = [];
   const enough = fm.seconds >= 3 && nz.segments >= 2;
+  // тест моторов на столе: тяга, разброс, питание и PID не оцениваются (карточки серые)
+  const bench = isBenchTest(ctx);
 
   // --- шумы ---
   {
@@ -79,6 +84,21 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
         else if (pk.p.kind === 'motor') extra.push(T.phrase.peakMotor(an, pk.p.hz, pk.p.harmonic ?? 1));
         else extra.push(T.phrase.peakUnknown(an, pk.p.hz));
       }
+      // окно «ниже 100 Гц» (ролл, питч): узкий пик над трендом или широкий подъём 40–100 Гц
+      const SB = N.sub100;
+      const s100 = ax.slice(0, 2).map((a) => a.sub100);
+      const lvl = (x: (typeof s100)[number]): number => (!x ? -Infinity : Math.max(x.bandDb, x.peakProm >= SB.narrowDb ? x.peakDb : -Infinity));
+      const s100st = s100.map((x): Status => (!x ? 'grey' : lvl(x) >= SB.redDb ? 'red' : lvl(x) >= SB.warnDb ? 'yellow' : 'green'));
+      if (s100.some(Boolean)) {
+        metrics.push({ label: T.phrase.sub100Label, value: s100.map((x) => (x ? `${x.bandDb.toFixed(0)} дБ` : '—')).join(' · '), status: worst(...s100st.filter((s) => s !== 'grey')), help: 'noise-sub100' });
+        status = worst(status, ...s100st.filter((s) => s !== 'grey'));
+        const w = s100.map((x, i) => ({ x, i })).filter((o) => o.x && s100st[o.i] !== 'green').sort((a, b) => lvl(b.x) - lvl(a.x))[0];
+        if (w) {
+          const x = w.x!;
+          const nar = x.peakProm >= SB.narrowDb && x.peakDb >= SB.warnDb;
+          extra.unshift(T.phrase.sub100(AXIS_NAMES_GEN[w.i], nar ? x.peakHz : SB.bandFromHz, nar ? x.peakDb : x.bandDb, nar));
+        }
+      }
       if (nz.bursts.length) extra.push(T.phrase.bursts(nz.bursts.length));
       if (nz.degraded) extra.push(T.phrase.degraded);
       ax.forEach((a) => {
@@ -101,12 +121,17 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
       const d = fb.current.delay;
       phrase = T.phrase.filtersDelay(d.gyro['100'], d.dterm['100'], redAvg);
       const worstMatch = Math.min(...v.match.filter((x) => Number.isFinite(x)));
-      // редкий лог — не проблема борта: жёлтый, а не красный
-      status = v.reason === 'low-rate' && v.status === 'red' ? 'yellow' : v.status;
+      // Цвет карточки — про борт, а не про модель. Модель не сошлась (прошивка до 4.5 с другими
+      // фильтрами, иной алгоритм) — это ограничение утилиты: серый «не оценить», а не красный.
+      // Редкий лог и нет gyroUnfilt — исправимо записью лога: жёлтый. (Разбор чата Blackbox 2.0:
+      // красный «модель не совпадает» был на 128 из 232 чужих логов, почти все — 4.3/4.4.)
+      status = v.status === 'green' ? 'green' : v.reason === 'low-rate' || v.reason === 'no-unfilt' ? 'yellow' : 'grey';
       extra.push(v.status === 'green' ? T.phrase.filtersModelOk(worstMatch) : T.phrase.filtersModelBad(worstMatch, v.reason));
       metrics.push(
         { label: 'Задержка гиро на 50 / 100 / 150 Гц', value: `${fx(d.gyro['50'], 2)} / ${fx(d.gyro['100'], 2)} / ${fx(d.gyro['150'], 2)} мс`, help: 'filter-delay' },
         { label: 'Задержка D-term на 100 Гц', value: fx(d.dterm['100'], 2, ' мс'), help: 'filter-delay' },
+        // PIDtoolbox пишет «Gyro X мс | Dterm Y мс» — Y без гиро-цепочки; ориентир чата — ~2 мс каждая для 5"
+        { label: 'Как в PIDtoolbox: гиро | только D-фильтры', value: `${fx(d.gyro['100'], 2)} | ${fx(d.dterm['100'] - d.gyro['100'], 2)} мс`, help: 'filter-delay' },
         { label: 'Подавление шума >80 Гц', value: fx(redAvg, 0, ' дБ'), help: 'metric-reduction' },
         { label: 'Модель совпадает с бортом', value: v.match.map((x) => fx(x, 0)).join(' / ') + ' %', status: v.status, help: 'filter-model' },
       );
@@ -184,7 +209,7 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     const clipMs = clips.reduce((s, a) => s + (a.value ?? 0), 0);
     const sDesync: Status = m.desyncs > 0 ? 'red' : 'green';
     const sClip: Status = clips.length ? 'red' : 'green';
-    const status = enough ? worst(sSat, sSpread === 'grey' ? 'green' : sSpread, sDesync, sClip) : 'grey';
+    const status = bench ? 'grey' : enough ? worst(sSat, sSpread === 'grey' ? 'green' : sSpread, sDesync, sClip) : 'grey';
     // фразы по убыванию серьёзности: первая — главная
     const found: { s: Status; text: string }[] = [];
     if (clips.length) found.push({ s: sClip, text: T.phrase.gyroClip(clips.length, clipMs) });
@@ -193,13 +218,15 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     if (rank[sSpread] >= 1 && m.heaviest !== null) found.push({ s: sSpread, text: T.phrase.motorsSpread(m.spreadPct!, m.heaviest) });
     found.sort((a, b) => rank[b.s] - rank[a.s]);
     const extra = found.map((f) => f.text);
-    const phrase = extra.shift() ?? (enough ? T.phrase.motorsOk(m.satPct) : T.phrase.noData);
+    const phrase = bench ? T.phrase.bench : extra.shift() ?? (enough ? T.phrase.motorsOk(m.satPct) : T.phrase.noData);
+    if (bench) extra.length = 0;
     cards.push({
       id: 'motors', title: T.card.motors, status, phrase, extra,
       metrics: [
         { label: 'В упоре (хоть один мотор)', value: fx(m.satPct, 1, ' %'), status: sSat, help: 'metric-motor-sat' },
         { label: 'Разброс на крейсере', value: fx(m.spreadPct, 0, ' %'), status: sSpread, help: 'metric-motor-spread' },
         { label: 'Десинки', value: String(m.desyncs), status: sDesync, help: 'metric-desync' },
+        { label: 'Обороты на холостом ходу', value: m.idleRpm !== null && m.idleRpm !== undefined ? `${Math.round(m.idleRpm)} об/мин` : '—', help: 'setup-dyn-idle' },
         { label: 'Упор гироскопа', value: clips.length ? `${clips.length} / ${clipMs.toFixed(0)} мс` : '0', status: sClip, help: 'metric-gyro-clip' },
       ],
       help: 'card-motors', tab: 'motors',
@@ -214,8 +241,9 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
     // пороги пульсаций и сопротивления заданы для 6S — масштабируем по числу банок
     const rScale = p.cells ? p.cells / 6 : 1;
     const sRip = lowIsGood(p.rippleP99, { green: P.rippleP99.green * rScale, red: P.rippleP99.red * rScale });
-    const sR = lowIsGood(p.resistanceMOhm, { green: P.resistanceMOhm.green * rScale, red: P.resistanceMOhm.red * rScale });
-    const status = enough ? worst(...[sCell, sRip, sR].filter((s) => s !== 'grey')) : 'grey';
+    // сопротивление считается по датчику тока, который на многих бортах не откалиброван: не выше жёлтого
+    const sR = capYellow(lowIsGood(p.resistanceMOhm, { green: P.resistanceMOhm.green * rScale, red: P.resistanceMOhm.red * rScale }));
+    const status = enough && !bench ? worst(...[sCell, sRip, sR].filter((s) => s !== 'grey')) : 'grey';
     const extra: string[] = [];
     if (rank[sCell] >= 1) extra.push(T.phrase.powerSag(p.minCell!));
     if (rank[sRip] >= 1) extra.push(T.phrase.powerRipple(p.rippleP99!));
@@ -238,7 +266,8 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
   // --- связь ---
   {
     const L = h.link;
-    const sLow = lowIsGood(L.lowSharePct, cfg.link.lowShare);
+    // RSSI в % у разных линков (ELRS, CRSF, LQ вместо RSSI) несопоставим: не выше жёлтого; красный — только failsafe
+    const sLow = capYellow(lowIsGood(L.lowSharePct, cfg.link.lowShare));
     const sLoss: Status = L.failsafeCount ? 'red' : L.rxLossCount ? 'yellow' : 'green';
     const status = worst(sLow === 'grey' ? 'green' : sLow, sLoss);
     const parts: string[] = [];
@@ -275,7 +304,7 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
         { label: 'Потеряно данных', value: `${lostPct.toFixed(2)} %`, status: sLost, help: 'metric-lost' },
         { label: 'Кадров I / P / битых', value: `${log.frames.I} / ${log.frames.P} / ${log.frames.bad}` },
         { label: 'Частота логирования', value: `${ctx.timing.logHz.toFixed(0)} Гц (Найквист ${ctx.timing.nyquistHz.toFixed(0)} Гц)`, help: 'nyquist' },
-        { label: 'gyroUnfilt в логе', value: ctx.hasGyroUnfilt ? 'есть' : 'нет', status: ctx.hasGyroUnfilt ? 'green' : 'yellow', help: 'gyro-unfilt' },
+        { label: 'gyroUnfilt в логе', value: ctx.hasGyroUnfilt ? (ctx.unfiltFromDebug ? 'есть (debug GYRO_SCALED)' : 'есть') : 'нет', status: ctx.hasGyroUnfilt ? 'green' : 'yellow', help: 'gyro-unfilt' },
         { label: 'Конец лога', value: log.end === 'LOG_END' ? 'штатный' : 'обрезан' },
       ],
       help: 'card-integrity', tab: 'file',

@@ -26,6 +26,23 @@ export type PropsState = 'ok' | 'chipped' | 'damaged';
 export type FeelTag = 'good' | 'sluggish' | 'twitchy' | 'propwash' | 'jello' | 'worse';
 export const FEEL_TAGS: FeelTag[] = ['good', 'sluggish', 'twitchy', 'propwash', 'jello', 'worse'];
 
+/** характер полёта, к которому ведём настройку (как Sharper / Balanced / Smoother у fpvpidtune.com) */
+export type TuneStyle = 'sharper' | 'balanced' | 'smoother';
+export const TUNE_STYLES: TuneStyle[] = ['sharper', 'balanced', 'smoother'];
+
+/**
+ * Раунды (фильтры → баланс P:D и главный множитель → FF и I → доводка). Раунд полёта — самая
+ * ранняя группа, в которой ещё есть что менять: сначала фильтры, потом PID — как у
+ * fpvpidtune.com и в «примитивном алгоритме» чата Blackbox 2.0. Хранить номер раунда не нужно.
+ */
+export type TuneStage = 1 | 2 | 3 | 4;
+export function ruleStage(id: string): TuneStage {
+  if (/^R-(FLT|DYN-NOTCH|SETUP)-/.test(id)) return 1;
+  if (/^R-(PID-OVERSHOOT|NOISE-SUB100-02|STAB-GM-LOW)/.test(id)) return 2;
+  if (/^R-PID-(SLUGGISH|SAG)/.test(id)) return 3;
+  return 4;
+}
+
 export interface AutotuneCheckin {
   props: PropsState;
   /** моторы на ощупь после полёта: 0 холодные … 3 обжигают */
@@ -56,6 +73,8 @@ export interface AutotuneCtx {
   unfiltJumpPct?: number | null;
   /** правила, уже откатанные в этой серии, — больше не предлагать */
   avoid?: string[];
+  /** к какому характеру ведём (пороги советчика — analysis.json → autotune.styles) */
+  style?: TuneStyle;
 }
 
 export type AutotuneVerdict = 'props' | 'mechanics' | 'revert' | 'tune' | 'limit' | 'flight' | 'done';
@@ -66,6 +85,9 @@ export interface AutotuneSummary {
   verdict: AutotuneVerdict;
   iteration: number;
   checkin: AutotuneCheckin;
+  /** раунд этого полёта (1 фильтры, 2 P:D и множитель, 3 FF и I, 4 доводка) */
+  stage?: TuneStage;
+  style?: TuneStyle;
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -143,6 +165,19 @@ export function autotunePolicy(out: Advice[], inp: AdvisorInput, add: AddFn): vo
     // нравится — не трогаем, кроме красного (горячие моторы при целых пропах)
     if (happy && a.severity !== 'red') { defer(a, 'happy'); continue; }
   }
+
+  // ---- раунд: только самая ранняя группа, где ещё есть что менять ----
+  const live = out.filter((a) => a.kind === 'tune' && !a.deferred && a.id !== 'R-AT-REVERT-01' && Object.keys(a.changes).length);
+  if (live.length) {
+    const stage = Math.min(...live.map((a) => ruleStage(a.id)));
+    for (const a of live) if (ruleStage(a.id) > stage) defer(a, 'stage');
+  }
+}
+
+/** раунд полёта по выбранным советам (для итога и интерфейса) */
+export function stageOf(adv: Advice[]): TuneStage | undefined {
+  const sel = adv.filter((a) => a.kind === 'tune' && a.selected && a.id !== 'R-AT-REVERT-01' && Object.keys(a.changes).length);
+  return sel.length ? (Math.min(...sel.map((a) => ruleStage(a.id))) as TuneStage) : undefined;
 }
 
 /** итог по полёту — после выбора на полёт */
@@ -160,7 +195,7 @@ export function autotuneSummary(adv: Advice[], inp: AdvisorInput): AutotuneSumma
   else if (!happy && adv.some((a) => a.deferred === 'floor')) verdict = 'limit';
   else if (!happy && adv.some((a) => a.id === 'R-STEP-DATA-01')) verdict = 'flight';
   else verdict = 'done';
-  return { policy: C.version, verdict, iteration: at.iteration, checkin: ck };
+  return { policy: C.version, verdict, iteration: at.iteration, checkin: ck, stage: stageOf(adv), style: at.style };
 }
 
 // ---------------- контекст из истории серии (интерфейс и тесты) ----------------

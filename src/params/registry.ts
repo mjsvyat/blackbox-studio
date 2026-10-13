@@ -44,7 +44,15 @@ const rateAxis = (ax: string, axRu: string): ParamDef[] => [
   { name: `${ax}_rate_limit`, min: 200, max: 1998, def: 1998, unit: '°/с', label: `${axRu}: ограничение`, help: 'rates-params' },
 ];
 
+/** запись лога (settings.c 4.3–2026.6: lookupTableBlackboxSampleRate; debug.c: debugModeNames — первые 7 одинаковы) */
+const LOG_PARAMS: ParamDef[] = [
+  { name: 'blackbox_sample_rate', min: 0, max: 4, def: 1, options: ['1/1', '1/2', '1/4', '1/8', '1/16'], since: V43, label: 'Blackbox: доля записываемых циклов PID', help: 'log-setup' },
+  // пишем только NONE или GYRO_SCALED (гиро до фильтров в логах до 4.5); остальные режимы утилита не ставит
+  { name: 'debug_mode', min: 0, max: 6, def: 0, options: ['NONE', 'CYCLETIME', 'BATTERY', 'GYRO_FILTERED', 'ACCELEROMETER', 'PIDLOOP', 'GYRO_SCALED'], since: V43, label: 'Режим отладки в логе', help: 'log-setup' },
+];
+
 export const PARAMS: ParamDef[] = [
+  ...LOG_PARAMS,
   { name: 'gyro_lpf1_type', min: 0, max: 3, def: 0, options: LPF_TYPES, since: V43, label: 'Gyro LPF1: тип', help: 'filter-lpf' },
   { name: 'gyro_lpf1_static_hz', min: 0, max: 1000, def: 250, unit: 'Гц', since: V43, label: 'Gyro LPF1: срез (0 — выкл.)', help: 'filter-lpf' },
   { name: 'gyro_lpf1_dyn_min_hz', min: 0, max: 1000, def: 250, unit: 'Гц', since: V43, label: 'Gyro LPF1 динамический: мин. (0 — статический)', help: 'filter-dyn-lpf' },
@@ -83,6 +91,8 @@ export const PARAMS: ParamDef[] = [
   ...pidAxis('roll', 'Ролл'),
   ...pidAxis('pitch', 'Питч'),
   ...pidAxis('yaw', 'Яв'),
+  // cli/settings.c BF (master): VAR_UINT8, PID-профиль, 0…200, сотни об/мин; 0 — динамический ХХ выключен
+  { name: 'dyn_idle_min_rpm', min: 0, max: 200, def: 0, unit: '×100 об/мин', since: V43, label: 'Динамический холостой ход (0 — выкл.)', help: 'setup-dyn-idle' },
   { name: 'simplified_pids_mode', min: 0, max: 2, def: 2, options: ['OFF', 'RP', 'RPY'], since: V43, label: 'Simplified PID: режим', help: 'pid-simplified' },
   simp('simplified_master_multiplier', 0, 'Simplified: общий множитель'),
   simp('simplified_pi_gain', 0, 'Simplified: P и I (отслеживание)'),

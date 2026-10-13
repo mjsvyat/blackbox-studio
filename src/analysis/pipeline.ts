@@ -19,6 +19,9 @@ import { HealthResult, analyzeHealth } from './health';
 import { ManeuverCount, countManeuvers } from './maneuvers';
 import { NoiseResult, analyzeNoise } from './noise';
 import { Card, LogMeta, buildSummary } from './summary';
+import { isBenchTest } from './bench';
+import { LogCheck, checkLog } from './logcheck';
+export { isBenchTest } from './bench';
 
 export interface Analysis {
   c: LogContext;
@@ -29,6 +32,8 @@ export interface Analysis {
   pid: PidResult | null;
   /** манёвры для протокола тестового полёта (A2) */
   maneuvers: ManeuverCount;
+  /** хватает ли данных для фильтров и PID, что долетать */
+  logCheck: LogCheck;
   /** модель оси для прогноза PID (null — не построена); по chirp, если он был (C) */
   sysid: Sysid | null;
   /** частотные характеристики, запасы, chirp (C); null — не посчитано */
@@ -88,7 +93,8 @@ export function analyzeLog(c: LogContext, range: { t0: number; t1: number } | nu
   }
   const cards = buildSummary(c, fm, nz, h, meta, filters?.base ?? null, pid);
   const maneuvers = countManeuvers(c, fm.mask);
-  return { c, fm, nz, h, filters, pid, maneuvers, sysid, chirp, cards };
+  const logCheck = checkLog(c, maneuvers, throttleTop(c, fm.mask));
+  return { c, fm, nz, h, filters, pid, maneuvers, logCheck, sysid, chirp, cards };
 }
 
 /** советы + ожидаемый эффект советов по фильтрам (точная модель, как в песочнице) */
@@ -96,6 +102,7 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
   const { c, nz, h, filters: f } = a;
   const inp = advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header));
   if (board) inp.board = board;
+  inp.flight = { thrTop: throttleTop(c, a.fm.mask), gyroDelayMs: f ? f.base.current.delay.gyro['100'] ?? null : null, bench: isBenchTest(c) };
   // запасы устойчивости — только те, которым можно верить (когерентность у среза)
   inp.stability = (a.chirp?.axes ?? []).filter((x) => x.marginsOk && x.margins?.crossHz).map((x) => ({ axis: x.axis, pmDeg: x.margins!.pmDeg, gmDb: x.margins!.gmDb, crossHz: x.margins!.crossHz!, source: x.source }));
   const res = runAdvisor(inp, override);
@@ -125,6 +132,15 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
     }
   }
   return res;
+}
+
+/** верх газа в маске полёта (99-й перцентиль, %, без одиночных выбросов); null — полёта нет */
+export function throttleTop(c: LogContext, mask: Uint8Array): number | null {
+  const t: number[] = [];
+  for (let i = 0; i < c.n; i += 4) if (mask[i]) t.push(c.thrPct[i]);
+  if (t.length < 50) return null;
+  t.sort((x, y) => x - y);
+  return t[Math.floor(t.length * 0.99)];
 }
 
 /** новые PID после изменений CLI (p_roll, d_max_pitch…) */

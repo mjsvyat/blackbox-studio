@@ -251,3 +251,42 @@ describe.skipIf(!hasFixture(BIG_DUMP))('автотюн на логе 4.5.2 №3 
     expect(hot.advice.filter((x) => x.kind === 'tune' && x.selected)).toHaveLength(1);
   });
 });
+
+describe('автотюн: раунды и характер полёта (как у fpvpidtune.com)', () => {
+  it('фильтры и PID в одном полёте — сначала раунд фильтров, PID ждёт', () => {
+    // моторы горячие → зажать D-term (раунд 1); перерегулирование 30 % → PID (раунд 2)
+    const r = runAdvisor(input({ pid: pidWith(30), ...at({}, { motorTemp: 2 }) }, HOT_DTERM));
+    expect(sel(r)).toEqual(['R-FLT-DTERM-HOT-01']);
+    expect(why(r, 'R-PID-OVERSHOOT-01')).toBe('stage');
+    expect(r.autotune!.stage).toBe(1);
+  });
+
+  // фильтрам менять нечего (шум после фильтров между зелёным и красным) — раунд P:D
+  const MID = { filt: [2, 2, 2] };
+  it('фильтры в порядке — раунд P:D', () => {
+    const r = runAdvisor(input({ pid: pidWith(30), ...at() }, MID));
+    expect(sel(r)).toEqual(['R-PID-OVERSHOOT-01']);
+    expect(r.autotune!.stage).toBe(2);
+  });
+
+  it('характер: «мягче» считает 12 % перерегулирования лишним, «резче» — нет', () => {
+    const soft = runAdvisor(input({ pid: pidWith(12), ...at({ style: 'smoother' }) }, MID));
+    expect(sel(soft)).toContain('R-PID-OVERSHOOT-01');
+    const sharp = runAdvisor(input({ pid: pidWith(18), ...at({ style: 'sharper' }) }, MID));
+    expect(sel(sharp)).not.toContain('R-PID-OVERSHOOT-01');
+    expect(sharp.autotune!.style).toBe('sharper');
+  });
+});
+
+describe('лимиты по размеру пропов («почему не больше»)', () => {
+  it('D выше лимита класса не поднимаем — упирается в лимит и объясняет', () => {
+    const pid = pidWith(30);
+    pid.gains.D = [58, 59, 0];
+    // без Simplified: D по осям напрямую (+10 %)
+    const r = runAdvisor(input({ pid, simplified: null }, { filt: [2, 2, 2], dterm: [3, 2, null] }));
+    const a = r.advice.find((x) => x.id === 'R-PID-OVERSHOOT-01')!;
+    expect(a.changes.d_roll).toBe(60);
+    expect(a.changes.d_pitch).toBe(60);
+    expect(a.limited!.map((l) => l.key)).toEqual(['d_roll', 'd_pitch']);
+  });
+});

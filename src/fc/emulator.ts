@@ -25,6 +25,8 @@ export interface FakeFcOptions {
   usedSize?: number;
   armed?: boolean;
   armingDisableFlags?: number;
+  /** напряжение батареи, В (0 — только USB) */
+  vbat?: number;
   /** сколько длится стирание, мс */
   eraseMs?: number;
   /** испортить контрольную сумму каждого N-го ответа */
@@ -89,6 +91,7 @@ export class FakeFc implements SerialLink {
       usedSize: 0,
       armed: false,
       armingDisableFlags: 0,
+      vbat: 0,
       eraseMs: 50,
       delayMs: 0,
       ...opts,
@@ -253,6 +256,8 @@ export class FakeFc implements SerialLink {
         return new Writer().str('Jun  1 2026', 11).str('12:00:00', 8).str('6dbc421', 7).u8(0).done();
       case MSP.NAME:
         return new Writer().str(o.craftName).done();
+      case MSP.ANALOG:
+        return new Writer().u8(Math.round(o.vbat * 10)).u16(0).u16(0).u16(0).u16(Math.round(o.vbat * 100)).done();
       case MSP.UID:
         return new Writer().u32(o.uid[0]).u32(o.uid[1]).u32(o.uid[2]).done();
       case MSP.STATUS_EX: {

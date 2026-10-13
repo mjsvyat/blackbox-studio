@@ -234,7 +234,9 @@ export async function scanFile(r: ByteReader, onProgress?: (f: number, stage: st
     } catch {
       /* оценка не удалась — оставляем null */
     }
-    L.empty = L.datetime.startsWith('0000') || (L.durationS !== null && L.durationS < 1);
+    // дата 0000-01-01 — просто нет часов (полётник без USB/GPS): по ней «пустой» только если
+    // длительность не определить. Иначе такие полёты из чата Blackbox 2.0 выпадали из анализа.
+    L.empty = L.durationS !== null ? L.durationS < 1 : L.datetime.startsWith('0000');
   }
 
   onProgress?.(1, 'готово');

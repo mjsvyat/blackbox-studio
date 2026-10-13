@@ -34,6 +34,8 @@ export interface MotorStats {
   /** самый нагруженный мотор (по средней команде на крейсере) */
   heaviest: number | null;
   desyncs: number;
+  /** обороты моторов на холостом ходу (стик газа внизу, команда на минимуме), об/мин; null — нет eRPM или таких моментов */
+  idleRpm: number | null;
 }
 
 export interface PowerStats {
@@ -268,12 +270,31 @@ export function analyzeHealth(ctx: LogContext, fm: FlightMask): HealthResult {
     }
   }
 
+  // обороты на холостом ходу: газ < 2 %, команда мотора на минимуме (motor_idle), мотор крутится.
+  // Каждый мотор отдельно: с airmode PID и на земле подмешивает поправки, и «все четыре ровно на
+  // минимуме» почти не бывает (проверено на логах 2026.6.1 и 4.5.2).
+  // Нужны советчику: динамический ХХ (dyn_idle_min_rpm) должен быть ниже этих оборотов.
+  let idleRpm: number | null = null;
+  if (ctx.motorHzEach) {
+    const v: number[] = [];
+    for (let i = 0; i < n; i += 4) {
+      if (ctx.thrPct[i] >= 2) continue;
+      for (let m = 0; m < motorCount; m++) {
+        if (motorNorm[m][i] <= 0.005 && ctx.motorHzEach[m][i] >= 5) v.push(ctx.motorHzEach[m][i] * 60);
+      }
+    }
+    if (v.length >= Math.round(fs * 0.2 / 4)) {
+      v.sort((a, b) => a - b);
+      idleRpm = v[Math.floor(v.length / 2)];
+    }
+  }
+
   anomalies.sort((a, b) => a.t0 - b.t0);
   return {
     motors: {
       satPct: inFlight ? (sat / inFlight) * 100 : 0,
       allSatPct: inFlight ? (allSat / inFlight) * 100 : 0,
-      cruiseAvg, spreadPct, heaviest, desyncs,
+      cruiseAvg, spreadPct, heaviest, desyncs, idleRpm,
     },
     power, link, anomalies, modes,
   };

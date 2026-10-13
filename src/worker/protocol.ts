@@ -1,3 +1,4 @@
+import type { LogCheck } from '../analysis/logcheck';
 // Сообщения между UI и воркером.
 
 import type { FreqView } from '../sysid/chirp';
@@ -81,6 +82,7 @@ export interface AnalysisPayload {
   /** класс борта, по порогам которого посчитан светофор */
   cls: ClassInfo;
   cards: Card[];
+  logCheck: LogCheck;
   maskSegments: [number, number][];
   maskSeconds: number;
   excluded: Record<string, number>;

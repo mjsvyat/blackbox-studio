@@ -42,11 +42,13 @@ export interface Advice {
   selected: boolean;
   deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky' | 'caution' | 'stability'
     // автотюн (autotune.ts): пропы, только откат, уже откатывали, моторы не горячие, пол «не душить», горячо, нравится
-    | 'props' | 'revert-only' | 'reverted' | 'not-hot' | 'floor' | 'hot' | 'happy';
+    | 'props' | 'revert-only' | 'reverted' | 'not-hot' | 'floor' | 'hot' | 'happy' | 'stage';
   /** на этом борту правило уже ухудшало результат (этап 6) */
   caution?: { worse: number; n: number; incidents: string[] };
   /** ожидаемый эффект по точной модели (фильтры) — заполняет воркер */
   effect?: { delay100: [number, number]; delayD100: [number, number]; dterm: [number, number]; gyro: [number, number] };
+  /** «почему не больше»: изменение упёрлось в лимит класса борта (размер пропов) */
+  limited?: { key: string; wanted: number; cap: number }[];
   /** прогноз step response по модели оси (этап 7) — заполняет конвейер */
   forecast?: { axis: number; now: { overshoot: number; delayMs: number; settle: number }; overshoot: Range; delayMs: Range; settle: Range }[];
   priority: number;
@@ -61,6 +63,8 @@ export interface AdvisorInput {
     filt: number[];
     dterm: (number | null)[];
     peaks: { axis: number; kind: string; hz: number; prominenceDb: number }[];
+    /** окно «ниже 100 Гц» по осям (ролл, питч) */
+    sub100?: ({ peakHz: number; peakDb: number; peakProm: number; zone: string; bandDb: number } | null)[];
   } | null;
   filters: { params: FilterParams; status: string; reason: string } | null;
   pid: PidResult | null;
@@ -70,6 +74,10 @@ export interface AdvisorInput {
   power: { resistanceMOhm: number | null; rippleP99: number | null; cells: number };
   /** знание о борте (профиль и история, этап 6) */
   board?: BoardKnowledge;
+  /** настройка борта из заголовка лога и замеры, не связанные с полётом */
+  setup?: { dynIdle: number | null; bidir: boolean | null; pidDenom: number; idleRpm: number | null };
+  /** верх газа в полёте (99-й перцентиль, %) и задержка фильтров гиро на 100 Гц (мс) */
+  flight?: { thrTop: number | null; gyroDelayMs: number | null; bench?: boolean };
   /** запасы устойчивости, которым можно верить (C: chirp или когерентный полёт) */
   stability?: { axis: number; pmDeg: number | null; gmDb: number | null; crossHz: number; source: 'chirp' | 'flight' }[];
 }
@@ -172,7 +180,10 @@ function pidChange(inp: AdvisorInput, slider: keyof SimplifiedPids, direct: 'P' 
 }
 
 export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}): AdvisorResult {
-  A = { ...cfg.advisor, ...override };
+  // характер полёта автотюна (sharper / smoother) — свои пороги PID поверх класса борта
+  const style = inp.board?.autotune?.style;
+  const styleOv = style ? ((cfg.autotune.styles as Record<string, Partial<AdvisorCfg>>)[style] ?? {}) : {};
+  A = { ...cfg.advisor, ...styleOv, ...override };
   const c: Ctx = { inp, out: [] };
   const N = cfg.noise, M = cfg.motors, P = cfg.power;
   const nz = inp.noise;
@@ -200,6 +211,16 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     add(c, { id: 'R-POWER-01', version: 1, kind: 'mechanic', severity: 'yellow', inputs: { r: isNum(rOhm) ? Math.round(rOhm) : '—', ripple: isNum(rip) ? +rip.toFixed(2) : '—' }, tab: 'motors', priority: 4 });
   }
 
+  // ---------- окно «ниже 100 Гц» (разметка админа чата на скриншотах PIDtoolbox) ----------
+  // узкий пик — механика/электрика (фильтром не убрать: это полоса управления); широкий подъём —
+  // PID усиливает шум сам («перерегулирование») — главный множитель ниже
+  const S100 = cfg.noise.sub100;
+  const s1 = (nz?.sub100 ?? []).map((x, axis) => (x ? { ...x, axis } : null)).filter((x): x is NonNullable<typeof x> => !!x);
+  const narrow = s1.filter((x) => x.peakProm >= S100.narrowDb && x.peakDb >= S100.warnDb).sort((a, b) => b.peakDb - a.peakDb)[0];
+  const broad = s1.filter((x) => x.bandDb >= S100.warnDb).sort((a, b) => b.bandDb - a.bandDb)[0];
+  if (narrow) add(c, { id: 'R-NOISE-SUB100-01', version: 1, kind: 'mechanic', severity: narrow.peakDb >= S100.redDb ? 'red' : 'yellow', inputs: { db: Math.round(narrow.peakDb), hz: Math.round(narrow.peakHz), axis: narrow.axis, zone: narrow.zone, prom: Math.round(narrow.peakProm) }, tab: 'noise', priority: 3 });
+  else if (broad && pid) add(c, { id: 'R-NOISE-SUB100-02', version: 1, kind: 'tune', severity: 'yellow', inputs: { db: Math.round(broad.bandDb), hz: S100.bandFromHz, axis: broad.axis }, tab: 'noise', priority: 14, ...pidChange(inp, 'master', 'P', -1, pid.gains) });
+
   // ---------- фильтры ----------
   // усиливать фильтры можно и по редкому логу (D-term и шум меряются прямо из лога);
   // ослаблять — только когда модель фильтров совпадает с бортом (зелёная)
@@ -216,7 +237,8 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
       const ch = filterChange(p, 'gyro', -1);
       add(c, { id: 'R-FLT-GYRO-NOISY-01', version: 1, kind: 'tune', severity: 'red', inputs: { filt: +fMax.toFixed(2), red: N.filtRms.red, axis: nz.filt.indexOf(fMax) }, tab: 'filters', priority: 11, ...ch });
     }
-    const clean = fl.status === 'green' && isNum(fMax) && fMax < N.filtRms.green && (!isNum(unfMax) || unfMax < N.unfiltRms.green) && isNum(dMax) && dMax < A.dtermRms.green;
+    const fullThr = !isNum(inp.flight?.thrTop) || inp.flight!.thrTop! >= A.fullThrottlePct;
+    const clean = fullThr && fl.status === 'green' && isNum(fMax) && fMax < N.filtRms.green && (!isNum(unfMax) || unfMax < N.unfiltRms.green) && isNum(dMax) && dMax < A.dtermRms.green;
     if (clean && (p.simplified_gyro_filter_multiplier ?? 100) < 200) {
       const ch = filterChange(p, 'gyro', 1);
       add(c, { id: 'R-FLT-GYRO-RAISE-01', version: 1, kind: 'tune', severity: 'info', inputs: { filt: +fMax.toFixed(2), green: N.filtRms.green, dterm: +dMax.toFixed(1) }, tab: 'filters', priority: 40, safety: true, ...ch });
@@ -234,6 +256,65 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
         const v = fr.hz < lo ? Math.floor((fr.hz * (1 - A.notchMarginPct / 100)) / 5) * 5 : Math.ceil((fr.hz * (1 + A.notchMarginPct / 100)) / 5) * 5;
         add(c, { id: 'R-DYN-NOTCH-RANGE-01', version: 1, kind: 'tune', severity: 'yellow', inputs: { hz: Math.round(fr.hz), db: Math.round(fr.prominenceDb), lo, hi, axis: fr.axis }, tab: 'noise', priority: 12, from: { [k]: p[k] }, changes: { [k]: clampParam(k, v) } });
       }
+    }
+  }
+
+  // ---------- ориентиры чата Blackbox 2.0 (docs/knowledge/blackbox_two.md) ----------
+  // лог без полного газа: шум на верхах не виден — ослаблять фильтры по нему нельзя
+  const thrTop = inp.flight?.thrTop;
+  if (isNum(thrTop) && thrTop < A.fullThrottlePct) add(c, { id: 'R-LOG-THROTTLE-01', version: 1, kind: 'info', severity: 'yellow', inputs: { top: Math.round(thrTop), need: A.fullThrottlePct }, tab: 'noise', priority: 92 });
+  if (fl && nz && modelOk) {
+    const p = fl.params;
+    // фильтр гиро с срезом ниже полосы управления (5": 100 Гц): задержка → PID «регулирует прошлое»
+    const lows = ['gyro_lpf1_static_hz', 'gyro_lpf1_dyn_min_hz', 'gyro_lpf2_static_hz'].filter((k) => isNum(p[k]) && p[k] > 0 && p[k] < A.minGyroCutoffHz);
+    if (lows.length && !mechNoise && !(isNum(fMax) && fMax >= N.filtRms.red)) {
+      const from: Record<string, number> = {}, changes: Record<string, number> = {};
+      for (const k of lows) { from[k] = p[k]; changes[k] = clampParam(k, A.minGyroCutoffHz); }
+      if (isNum(p.gyro_lpf1_dyn_max_hz) && p.gyro_lpf1_dyn_max_hz > 0 && changes.gyro_lpf1_dyn_min_hz && p.gyro_lpf1_dyn_max_hz < changes.gyro_lpf1_dyn_min_hz) { from.gyro_lpf1_dyn_max_hz = p.gyro_lpf1_dyn_max_hz; changes.gyro_lpf1_dyn_max_hz = clampParam('gyro_lpf1_dyn_max_hz', A.minGyroCutoffHz * 2); }
+      add(c, { id: 'R-FLT-LOWCUT-01', version: 1, kind: 'tune', severity: 'yellow', inputs: { hz: Math.min(...lows.map((k) => p[k])), min: A.minGyroCutoffHz, cls: inp.board?.cls ?? '5in' }, tab: 'filters', priority: 13, safety: true, from, changes });
+    }
+    // задержка фильтров гиро выше ориентира для размера — только сведения: решать по шуму и моторам
+    const gd = inp.flight?.gyroDelayMs;
+    if (isNum(gd) && gd > A.gyroDelayTargetMs) add(c, { id: 'R-FLT-DELAY-01', version: 1, kind: 'info', severity: 'info', inputs: { ms: +gd.toFixed(2), target: A.gyroDelayTargetMs, cls: inp.board?.cls ?? '5in' }, tab: 'filters', priority: 60 });
+  }
+
+  // ---------- обязательные фильтры (чат Blackbox 2.0) ----------
+  // Это усиление фильтров, а не ослабление: можно и по редкому логу, и без зелёной модели.
+  if (fl) {
+    const p = fl.params;
+    const su = inp.setup;
+    // PID-цикл медленнее гироскопа (pid_process_denom > 1): без LPF2 шум между частотами
+    // гироскопа и PID «отражается» вниз при прореживании — LPF2 не отключать
+    if (su && su.pidDenom > 1 && p.gyro_lpf2_static_hz === 0) {
+      const v = p.simplified_gyro_filter ? applySimplified({ ...p, gyro_lpf2_static_hz: 1 }).gyro_lpf2_static_hz : 500;
+      add(c, { id: 'R-FLT-LPF2-DENOM-01', version: 2, kind: 'tune', severity: 'yellow', inputs: { denom: su.pidDenom, hz: v }, tab: 'filters', priority: 9, from: { gyro_lpf2_static_hz: 0 }, changes: { gyro_lpf2_static_hz: clampParam('gyro_lpf2_static_hz', v) } });
+    }
+    // фильтры D-term выключены целиком: D отдаёт моторам весь шум
+    // (срезы должны быть в заголовке: лог без настроек фильтров — не «всё выключено»)
+    const dKnown = p.dterm_lpf1_static_hz !== undefined && p.dterm_lpf2_static_hz !== undefined;
+    const dOff = dKnown && !(p.dterm_lpf1_static_hz ?? 0) && !(p.dterm_lpf1_dyn_min_hz ?? 0) && !(p.dterm_lpf2_static_hz ?? 0);
+    if (dOff) {
+      const v = p.simplified_dterm_filter ? applySimplified({ ...p, dterm_lpf1_static_hz: 1 }).dterm_lpf1_static_hz : 75;
+      add(c, { id: 'R-FLT-DTERM-OFF-01', version: 2, kind: 'tune', severity: 'red', inputs: { hz: v }, tab: 'filters', priority: 8, from: { dterm_lpf1_static_hz: 0 }, changes: { dterm_lpf1_static_hz: clampParam('dterm_lpf1_static_hz', v) } });
+    }
+  }
+
+  // ---------- настройка борта ----------
+  // динамический холостой ход выключен при bidirectional DShot: стартовое значение по классу,
+  // но ниже оборотов статического ХХ (иначе в конфигураторе «Dynamic Idle должен быть меньше Dshot Idle»)
+  const su = inp.setup;
+  // без bidirectional DShot нет RPM-фильтров — самый частый совет экспертов чата
+  if (su && su.bidir === false) add(c, { id: 'R-SETUP-BIDIR-01', version: 1, kind: 'info', severity: 'yellow', inputs: {}, tab: 'motors', priority: 31 });
+  // 1–2S: дин. ХХ в чате советуют не включать (рискованно для регуля) — поднимают статический ХХ
+  if (su && su.bidir && su.dynIdle === 0 && !(inp.power.cells > 0 && inp.power.cells <= A.dynIdleMinCells - 1)) {
+    let v = A.dynIdleRpm;
+    let capped = false;
+    if (isNum(su.idleRpm) && su.idleRpm > 0) {
+      const cap = Math.floor((su.idleRpm * A.dynIdleIdleMargin) / 100);
+      if (cap < v) { v = cap; capped = true; }
+    }
+    if (v >= 5) {
+      add(c, { id: 'R-SETUP-DYN-IDLE-01', version: 2, kind: 'tune', severity: 'info', inputs: { v, rpm: v * 100, idle: isNum(su.idleRpm) ? Math.round(su.idleRpm) : '—', capped: capped ? 1 : 0, cls: inp.board?.cls ?? '5in' }, tab: 'motors', priority: 30, from: { dyn_idle_min_rpm: 0 }, changes: { dyn_idle_min_rpm: clampParam('dyn_idle_min_rpm', v) } });
     }
   }
 
@@ -274,6 +355,29 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
   const stabilityBlock = !!pmLow || !!gmLow;
   if (pmLow) add(c, { id: 'R-STAB-PM-LOW-01', version: 1, kind: 'info', severity: pmLow.pmDeg! < SB.pm.red ? 'red' : 'yellow', inputs: { axis: pmLow.axis, pm: Math.round(pmLow.pmDeg!), green: SB.pm.green, red: SB.pm.red, hz: Math.round(pmLow.crossHz), src: pmLow.source }, tab: 'filters', priority: 5 });
   if (gmLow && pid) add(c, { id: 'R-STAB-GM-LOW-01', version: 1, kind: 'tune', severity: 'red', inputs: { axis: gmLow.axis, gm: +gmLow.gmDb!.toFixed(1), red: SB.gm.red, src: gmLow.source }, tab: 'pid', priority: 6, ...pidChange(inp, 'pi', 'P', -1, pid.gains) });
+
+  // ---------- тест моторов на столе ----------
+  // моторы крутили из конфигуратора без пропов: тяга, разброс, питание, PID и настройки по такому
+  // логу не оцениваются (в чате на такие логи смотрят только шум гиро по моторам)
+  if (inp.flight?.bench) {
+    const keep = new Set(['R-MECH-NOISE-01', 'R-LOG-NO-UNFILT-01', 'R-LOG-RATE-01', 'R-SETUP-BIDIR-01']);
+    c.out = c.out.filter((a) => keep.has(a.id));
+    add(c, { id: 'R-LOG-BENCH-01', version: 1, kind: 'info', severity: 'yellow', inputs: {}, tab: 'noise', priority: -1 });
+  }
+
+  // ---------- лимиты по размеру пропов (как валидатор у fpvpidtune.com) ----------
+  // D и главный множитель не поднимаем выше лимита класса; упёрлось — пишем «почему не больше»
+  const L = A.limits;
+  for (const a of c.out) {
+    for (const [k, v] of Object.entries(a.changes)) {
+      const from = a.from[k];
+      if (!isNum(from) || v <= from) continue;
+      const cap = /^d_(roll|pitch)$|^d_max_(roll|pitch)$/.test(k) ? L.maxD : k === 'simplified_master_multiplier' ? L.maxMaster : null;
+      if (cap === null || v <= cap) continue;
+      (a.limited ??= []).push({ key: k, wanted: v, cap });
+      if (from >= cap) { delete a.changes[k]; delete a.from[k]; } else a.changes[k] = cap;
+    }
+  }
 
   // ---------- знание о борте: отключённые правила, правила «с осторожностью» ----------
   const off = new Set([...(A.disabledRules ?? []), ...(inp.board?.disabledRules ?? [])]);
@@ -322,8 +426,8 @@ function raisesPD(a: Advice): boolean {
 /** вход советчика из результатов анализа (общий для воркера и тестов) */
 export function advisorInputFrom(
   c: { fw: { code: number }; fs: number; hasGyroUnfilt: boolean; cells: number; log: { header: Record<string, string> } },
-  nz: { axes: { axis: number; rmsUnfilt: number | null; rmsFilt: number; rmsDterm: number | null; peaks: { kind: string; hz: number; prominenceDb: number }[] }[] },
-  h: { motors: { satPct: number; spreadPct: number | null; desyncs: number }; power: { resistanceMOhm: number | null; rippleP99: number | null }; anomalies: { kind: string; t0: number }[] },
+  nz: { axes: { axis: number; rmsUnfilt: number | null; rmsFilt: number; rmsDterm: number | null; sub100?: { peakHz: number; peakDb: number; peakProm: number; zone: string; bandDb: number } | null; peaks: { kind: string; hz: number; prominenceDb: number }[] }[] },
+  h: { motors: { satPct: number; spreadPct: number | null; desyncs: number; idleRpm?: number | null }; power: { resistanceMOhm: number | null; rippleP99: number | null }; anomalies: { kind: string; t0: number }[] },
   filters: { params: FilterParams; status: string; reason: string } | null,
   pid: PidResult | null,
   simplified: AdvisorInput['simplified'],
@@ -337,6 +441,7 @@ export function advisorInputFrom(
       filt: nz.axes.map((a) => a.rmsFilt),
       dterm: nz.axes.map((a) => a.rmsDterm),
       peaks: nz.axes.flatMap((a) => a.peaks.map((p) => ({ axis: a.axis, kind: p.kind, hz: p.hz, prominenceDb: p.prominenceDb }))),
+      sub100: nz.axes.slice(0, 2).map((a) => a.sub100 ?? null),
     },
     filters,
     pid,
@@ -344,7 +449,20 @@ export function advisorInputFrom(
     dKind: c.log.header.d_max !== undefined ? 'd_max' : 'd_min',
     motors: { satPct: h.motors.satPct, spreadPct: h.motors.spreadPct, desyncs: h.motors.desyncs, ...airClips(h.anomalies) },
     power: { resistanceMOhm: h.power.resistanceMOhm, rippleP99: h.power.rippleP99, cells: c.cells },
+    setup: setupFromHeader(c.log.header, h.motors.idleRpm ?? null),
   };
+}
+
+/** настройка борта из заголовка лога (имена заголовка совпадают с CLI) */
+export function setupFromHeader(H: Record<string, string>, idleRpm: number | null): AdvisorInput['setup'] {
+  const num = (k: string): number | null => {
+    const v = H[k];
+    if (v === undefined || v === '') return null;
+    const x = Number(v.split(',')[0]);
+    return Number.isFinite(x) ? x : null;
+  };
+  const bd = num('dshot_bidir');
+  return { dynIdle: num('dyn_idle_min_rpm'), bidir: bd === null ? null : bd === 1, pidDenom: num('pid_process_denom') ?? 1, idleRpm };
 }
 
 /** упоры гироскопа не дальше clipNearImpactS от удара — это краш, а не срыв в воздухе */

@@ -26,6 +26,8 @@ export interface FcUi {
   applyRows: { line: string; ok: boolean; error?: string }[];
   /** последнее применение (для отката); хранится и в сессии борта */
   lastApply: ApplyResult | null;
+  /** сверка после последней записи: что на борту не совпало */
+  verified?: { at: string; ok: boolean; bad: { name: string; want: string; got: string | null }[] } | null;
 }
 
 export const initialFc = (): FcUi => ({
