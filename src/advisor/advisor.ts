@@ -61,6 +61,8 @@ export interface AdvisorInput {
     filt: number[];
     dterm: (number | null)[];
     peaks: { axis: number; kind: string; hz: number; prominenceDb: number }[];
+    /** окно «ниже 100 Гц» по осям (ролл, питч) */
+    sub100?: ({ peakHz: number; peakDb: number; peakProm: number; zone: string; bandDb: number } | null)[];
   } | null;
   filters: { params: FilterParams; status: string; reason: string } | null;
   pid: PidResult | null;
@@ -203,6 +205,16 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
   if ((isNum(rOhm) && rOhm * s6 >= P.resistanceMOhm.red) || (isNum(rip) && rip * s6 >= P.rippleP99.red)) {
     add(c, { id: 'R-POWER-01', version: 1, kind: 'mechanic', severity: 'yellow', inputs: { r: isNum(rOhm) ? Math.round(rOhm) : '—', ripple: isNum(rip) ? +rip.toFixed(2) : '—' }, tab: 'motors', priority: 4 });
   }
+
+  // ---------- окно «ниже 100 Гц» (разметка админа чата на скриншотах PIDtoolbox) ----------
+  // узкий пик — механика/электрика (фильтром не убрать: это полоса управления); широкий подъём —
+  // PID усиливает шум сам («перерегулирование») — главный множитель ниже
+  const S100 = cfg.noise.sub100;
+  const s1 = (nz?.sub100 ?? []).map((x, axis) => (x ? { ...x, axis } : null)).filter((x): x is NonNullable<typeof x> => !!x);
+  const narrow = s1.filter((x) => x.peakProm >= S100.narrowDb && x.peakDb >= S100.warnDb).sort((a, b) => b.peakDb - a.peakDb)[0];
+  const broad = s1.filter((x) => x.bandDb >= S100.warnDb).sort((a, b) => b.bandDb - a.bandDb)[0];
+  if (narrow) add(c, { id: 'R-NOISE-SUB100-01', version: 1, kind: 'mechanic', severity: narrow.peakDb >= S100.redDb ? 'red' : 'yellow', inputs: { db: Math.round(narrow.peakDb), hz: Math.round(narrow.peakHz), axis: narrow.axis, zone: narrow.zone, prom: Math.round(narrow.peakProm) }, tab: 'noise', priority: 3 });
+  else if (broad && pid) add(c, { id: 'R-NOISE-SUB100-02', version: 1, kind: 'tune', severity: 'yellow', inputs: { db: Math.round(broad.bandDb), hz: S100.bandFromHz, axis: broad.axis }, tab: 'noise', priority: 14, ...pidChange(inp, 'master', 'P', -1, pid.gains) });
 
   // ---------- фильтры ----------
   // усиливать фильтры можно и по редкому логу (D-term и шум меряются прямо из лога);
@@ -395,7 +407,7 @@ function raisesPD(a: Advice): boolean {
 /** вход советчика из результатов анализа (общий для воркера и тестов) */
 export function advisorInputFrom(
   c: { fw: { code: number }; fs: number; hasGyroUnfilt: boolean; cells: number; log: { header: Record<string, string> } },
-  nz: { axes: { axis: number; rmsUnfilt: number | null; rmsFilt: number; rmsDterm: number | null; peaks: { kind: string; hz: number; prominenceDb: number }[] }[] },
+  nz: { axes: { axis: number; rmsUnfilt: number | null; rmsFilt: number; rmsDterm: number | null; sub100?: { peakHz: number; peakDb: number; peakProm: number; zone: string; bandDb: number } | null; peaks: { kind: string; hz: number; prominenceDb: number }[] }[] },
   h: { motors: { satPct: number; spreadPct: number | null; desyncs: number; idleRpm?: number | null }; power: { resistanceMOhm: number | null; rippleP99: number | null }; anomalies: { kind: string; t0: number }[] },
   filters: { params: FilterParams; status: string; reason: string } | null,
   pid: PidResult | null,
@@ -410,6 +422,7 @@ export function advisorInputFrom(
       filt: nz.axes.map((a) => a.rmsFilt),
       dterm: nz.axes.map((a) => a.rmsDterm),
       peaks: nz.axes.flatMap((a) => a.peaks.map((p) => ({ axis: a.axis, kind: p.kind, hz: p.hz, prominenceDb: p.prominenceDb }))),
+      sub100: nz.axes.slice(0, 2).map((a) => a.sub100 ?? null),
     },
     filters,
     pid,

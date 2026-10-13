@@ -84,6 +84,21 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
         else if (pk.p.kind === 'motor') extra.push(T.phrase.peakMotor(an, pk.p.hz, pk.p.harmonic ?? 1));
         else extra.push(T.phrase.peakUnknown(an, pk.p.hz));
       }
+      // окно «ниже 100 Гц» (ролл, питч): узкий пик над трендом или широкий подъём 40–100 Гц
+      const SB = N.sub100;
+      const s100 = ax.slice(0, 2).map((a) => a.sub100);
+      const lvl = (x: (typeof s100)[number]): number => (!x ? -Infinity : Math.max(x.bandDb, x.peakProm >= SB.narrowDb ? x.peakDb : -Infinity));
+      const s100st = s100.map((x): Status => (!x ? 'grey' : lvl(x) >= SB.redDb ? 'red' : lvl(x) >= SB.warnDb ? 'yellow' : 'green'));
+      if (s100.some(Boolean)) {
+        metrics.push({ label: T.phrase.sub100Label, value: s100.map((x) => (x ? `${x.bandDb.toFixed(0)} дБ` : '—')).join(' · '), status: worst(...s100st.filter((s) => s !== 'grey')), help: 'noise-sub100' });
+        status = worst(status, ...s100st.filter((s) => s !== 'grey'));
+        const w = s100.map((x, i) => ({ x, i })).filter((o) => o.x && s100st[o.i] !== 'green').sort((a, b) => lvl(b.x) - lvl(a.x))[0];
+        if (w) {
+          const x = w.x!;
+          const nar = x.peakProm >= SB.narrowDb && x.peakDb >= SB.warnDb;
+          extra.unshift(T.phrase.sub100(AXIS_NAMES_GEN[w.i], nar ? x.peakHz : SB.bandFromHz, nar ? x.peakDb : x.bandDb, nar));
+        }
+      }
       if (nz.bursts.length) extra.push(T.phrase.bursts(nz.bursts.length));
       if (nz.degraded) extra.push(T.phrase.degraded);
       ax.forEach((a) => {
@@ -115,6 +130,8 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
       metrics.push(
         { label: 'Задержка гиро на 50 / 100 / 150 Гц', value: `${fx(d.gyro['50'], 2)} / ${fx(d.gyro['100'], 2)} / ${fx(d.gyro['150'], 2)} мс`, help: 'filter-delay' },
         { label: 'Задержка D-term на 100 Гц', value: fx(d.dterm['100'], 2, ' мс'), help: 'filter-delay' },
+        // PIDtoolbox пишет «Gyro X мс | Dterm Y мс» — Y без гиро-цепочки; ориентир чата — ~2 мс каждая для 5"
+        { label: 'Как в PIDtoolbox: гиро | только D-фильтры', value: `${fx(d.gyro['100'], 2)} | ${fx(d.dterm['100'] - d.gyro['100'], 2)} мс`, help: 'filter-delay' },
         { label: 'Подавление шума >80 Гц', value: fx(redAvg, 0, ' дБ'), help: 'metric-reduction' },
         { label: 'Модель совпадает с бортом', value: v.match.map((x) => fx(x, 0)).join(' / ') + ' %', status: v.status, help: 'filter-model' },
       );

@@ -40,7 +40,20 @@ export interface AxisNoise {
   rmsDterm: number | null;
   /** СКЗ после фильтров в полосе 20–80 Гц — колебания в полосе работы PID */
   rmsMid: number;
+  /** окно «ниже 100 Гц» как в PIDtoolbox: самый высокий уровень после фильтров и его частота */
+  sub100: Sub100 | null;
   peaks: ClassifiedPeak[];
+}
+
+export interface Sub100 {
+  /** самый заметный узкий пик над трендом спектра (дБ — 10·lg СПМ, шкала PIDtoolbox) */
+  peakHz: number;
+  peakDb: number;
+  /** насколько пик выше тренда (прямая в осях lg f — дБ), дБ */
+  peakProm: number;
+  zone: 'loose' | 'electric' | 'pid';
+  /** средний уровень в полосе bandFromHz…100 Гц — широкий подъём от PID */
+  bandDb: number;
 }
 
 export interface Burst {
@@ -117,7 +130,7 @@ export function analyzeNoise(ctx: LogContext, fm: FlightMask): NoiseResult {
     axes.push({
       axis: a, unfilt, filt, dterm, rmsUnfilt, rmsFilt,
       reductionDb: rmsUnfilt !== null && rmsFilt > 0 ? 20 * Math.log10(rmsUnfilt / rmsFilt) : null,
-      rmsDterm, rmsMid: bandRms(filt, 20, 80), peaks,
+      rmsDterm, rmsMid: bandRms(filt, 20, 80), sub100: a < 2 && filt.segments ? sub100Of(filt) : null, peaks,
     });
   }
 
@@ -215,4 +228,40 @@ export function classifyPeak(p: Peak, spec: Spectrogram, motorHzMedian: number |
   }
   if (Number.isFinite(fCv) && fCv < C.frameResonanceMaxCv && freqs.length >= 3) out.kind = 'frame';
   return out;
+}
+
+/**
+ * Окно «ниже 100 Гц» (разметка админа чата Blackbox 2.0 на скриншотах PIDtoolbox): до ~15 Гц —
+ * стики; 18–28 Гц — что-то болтается (антенна, камера); 30–45 Гц — электрика (конденсатор,
+ * питание гиро); выше — моторы, пропвош и перерегулирование PID. Нормальный уровень после
+ * фильтров −20…−40 дБ; выше sub100.warnDb — проблема (её не фильтруют, лечат механикой или
+ * главным множителем).
+ */
+export function sub100Of(p: Psd): Sub100 {
+  const C = cfg.noise.sub100;
+  const half = Math.max(1, Math.round(C.smoothHz / p.df));
+  const i0 = Math.ceil(C.fromHz / p.df), i1 = Math.floor(100 / p.df);
+  const f: number[] = [], db: number[] = [];
+  for (let i = i0; i <= i1; i++) {
+    let s = 0, k = 0;
+    for (let j = i - half; j <= i + half; j++) if (j > 0 && j < p.psd.length) { s += p.psd[j]; k++; }
+    f.push(i * p.df);
+    db.push(10 * Math.log10(Math.max(1e-12, s / k)));
+  }
+  // тренд: спектр после фильтров спадает с частотой (хвост стиков) — прямая МНК в осях lg f / дБ
+  const x = f.map((v) => Math.log10(v));
+  const mx = x.reduce((s, v) => s + v, 0) / x.length, my = db.reduce((s, v) => s + v, 0) / db.length;
+  let sxy = 0, sxx = 0;
+  for (let i = 0; i < x.length; i++) { sxy += (x[i] - mx) * (db[i] - my); sxx += (x[i] - mx) ** 2; }
+  const k = sxx ? sxy / sxx : 0;
+  let best = 0, bestR = -Infinity;
+  for (let i = 0; i < x.length; i++) {
+    const r = db[i] - (my + k * (x[i] - mx));
+    if (r > bestR) { bestR = r; best = i; }
+  }
+  const hz = f[best];
+  const zone = hz < C.looseMaxHz ? 'loose' : hz < C.electricMaxHz ? 'electric' : 'pid';
+  const band = db.filter((_, i) => f[i] >= C.bandFromHz);
+  const bandDb = 10 * Math.log10(band.reduce((s, v) => s + 10 ** (v / 10), 0) / Math.max(1, band.length));
+  return { peakHz: hz, peakDb: db[best], peakProm: bestR, zone, bandDb };
 }

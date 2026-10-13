@@ -31,7 +31,24 @@
     "gyroClipDps": 1990,
     "motorHarmonicTolerance": 0.1,
     "frameResonanceMaxCv": 0.08,
-    "_history": []
+    "_history": [
+      {
+        "version": "1.7",
+        "why": "окно «ниже 100 Гц» по разметке админа чата Blackbox 2.0 (скриншоты PIDtoolbox): норма −20…−40 дБ, выше −10 — проблема; проверено, что наша СПМ в той же шкале (лог 2026.6.1 №4: −15…−32 дБ)",
+        "by": "docs/knowledge/blackbox_two.md"
+      }
+    ],
+    "sub100": {
+      "fromHz": 18,
+      "smoothHz": 2,
+      "looseMaxHz": 29,
+      "electricMaxHz": 46,
+      "warnDb": -10,
+      "redDb": 0,
+      "narrowDb": 8,
+      "_unit": "окно «ниже 100 Гц» (шкала PIDtoolbox, дБ). Узкий пик: выше тренда спектра (прямая в осях lg f / дБ, срезает хвост стиков) на ≥ narrowDb и уровень ≥ warnDb — механика/электрика (зоны: < looseMaxHz — что-то болтается, < electricMaxHz — электрика, выше — резонанс). Широкий подъём: средний уровень bandFromHz…100 Гц ≥ warnDb (≥ redDb — красный) — PID усиливает сам себя",
+      "bandFromHz": 40
+    }
   },
   "motors": {
     "saturationNorm": 0.98,
