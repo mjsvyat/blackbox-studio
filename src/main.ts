@@ -19,21 +19,24 @@ import { autotuneView } from './ui/views/autotune';
 import { openCampaign } from './campaigns/campaign';
 import { boardFor } from './sessions/boards';
 
-const TABS: { id: string; title: string; stage?: number; needsLog: boolean; plan?: string[] }[] = [
-  { id: 'file', title: T.tabs.file, needsLog: false },
-  { id: 'summary', title: T.tabs.summary, needsLog: true },
-  { id: 'noise', title: T.tabs.noise, needsLog: true },
-  { id: 'filters', title: T.tabs.filters, needsLog: true },
-  { id: 'pid', title: T.tabs.pid, needsLog: true },
-  { id: 'rates', title: T.tabs.rates, needsLog: true },
-  { id: 'motors', title: T.tabs.motors, needsLog: true },
-  { id: 'flight', title: T.tabs.flight, needsLog: true },
-  { id: 'tuning', title: T.tabs.tuning, needsLog: true },
-  { id: 'autotune', title: T.tabs.autotune, needsLog: false },
-  { id: 'compare', title: T.tabs.compare, needsLog: false },
-  { id: 'campaign', title: T.tabs.campaign, needsLog: false },
-  { id: 'fc', title: T.tabs.fc, needsLog: false },
+// Навигация — боковое меню по группам: что есть в логе → разбор по темам → что делать →
+// история → сам борт. Вкладки, которым нужен открытый лог, без него неактивны.
+const TABS: { id: string; title: string; group: string; stage?: number; needsLog: boolean; plan?: string[] }[] = [
+  { id: 'summary', title: T.tabs.summary, group: 'log', needsLog: true },
+  { id: 'file', title: T.tabs.file, group: 'log', needsLog: false },
+  { id: 'noise', title: T.tabs.noise, group: 'analysis', needsLog: true },
+  { id: 'filters', title: T.tabs.filters, group: 'analysis', needsLog: true },
+  { id: 'pid', title: T.tabs.pid, group: 'analysis', needsLog: true },
+  { id: 'rates', title: T.tabs.rates, group: 'analysis', needsLog: true },
+  { id: 'motors', title: T.tabs.motors, group: 'analysis', needsLog: true },
+  { id: 'flight', title: T.tabs.flight, group: 'analysis', needsLog: true },
+  { id: 'tuning', title: T.tabs.tuning, group: 'tune', needsLog: true },
+  { id: 'autotune', title: T.tabs.autotune, group: 'tune', needsLog: false },
+  { id: 'compare', title: T.tabs.compare, group: 'history', needsLog: false },
+  { id: 'campaign', title: T.tabs.campaign, group: 'history', needsLog: false },
+  { id: 'fc', title: T.tabs.fc, group: 'board', needsLog: false },
 ];
+const GROUPS = ['log', 'analysis', 'tune', 'history', 'board'];
 
 const app = document.getElementById('app')!;
 const main = h('main');
@@ -57,8 +60,8 @@ function toggleTheme(): void {
 }
 
 const topbar = h('div', { class: 'topbar' });
-const tabsBar = h('nav', { class: 'tabs' });
-app.append(progressBar, progressLabel, topbar, tabsBar, main, fileInput);
+const tabsBar = h('nav', { class: 'side' });
+app.append(progressBar, progressLabel, topbar, h('div', { class: 'shell' }, tabsBar, main), fileInput);
 
 function renderTopbar(): void {
   clear(topbar);
@@ -70,18 +73,21 @@ function renderTopbar(): void {
         usable.map((l) => h('option', { value: l.index, selected: state.info?.index === l.index },
           `№${l.index} · ${l.datetime.slice(0, 16).replace('T', ' ')} · ${l.durationS !== null ? fmtTime(l.durationS) : '?'}${l.empty ? ' (пустой)' : ''}`)))
     : null;
+  // редкие действия — в меню «⋯», чтобы шапка не спорила с содержимым
+  const more = h('details', { class: 'menu' }, h('summary', { class: 'btn ghost', title: T.nav.menu, 'aria-label': T.nav.menu }, '⋯'),
+    h('div', { class: 'menu-list' },
+      state.info ? h('button', { class: 'menu-item', onclick: () => { (more as HTMLDetailsElement).open = false; exportReport(); } }, T.rep.button) : '',
+      h('button', { class: 'menu-item', onclick: () => { (more as HTMLDetailsElement).open = false; openGlossary(); } }, T.help.glossary),
+      h('button', { class: 'menu-item', onclick: toggleTheme }, `${T.nav.theme}: ${document.documentElement.dataset.theme === 'dark' ? T.themeLight : T.themeDark}`)));
   topbar.append(
-    h('h1', null, T.appTitle, h('span', { class: 'app-ver', title: T.versionHint }, APP_VERSION)),
-    h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
-    h('span', { class: 'file-name' }, state.fileName ?? T.noFile),
-    sel ?? "",
+    h('div', { class: 'brand' }, h('span', { class: 'logo' }), T.appTitle, h('span', { class: 'app-ver', title: T.versionHint }, APP_VERSION)),
+    h('div', { class: 'file-box' },
+      h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
+      state.fileName ? h('span', { class: 'file-name', title: state.fileName }, state.fileName) : '',
+      sel ?? ''),
     h('span', { class: 'spacer' }),
     boardSwitcher(),
-    h('button', { class: `btn small ${state.tab === 'autotune' ? '' : 'primary'}`, title: T.at.intro, onclick: () => set({ tab: 'autotune' }) }, T.at.button),
-    h('button', { class: `btn small ${state.fc.phase === 'connected' ? 'primary' : ''}`, onclick: () => set({ tab: 'fc' }) }, T.fc.open),
-    state.info ? h('button', { class: 'btn small', onclick: () => exportReport() }, T.rep.button) : '',
-    h('button', { class: 'btn small', onclick: openGlossary }, T.help.glossary),
-    h('button', { class: 'btn small', onclick: toggleTheme }, document.documentElement.dataset.theme === 'dark' ? T.themeLight : T.themeDark),
+    more,
   );
 }
 
@@ -112,15 +118,24 @@ function boardSwitcher(): HTMLElement {
 
 function renderTabs(): void {
   clear(tabsBar);
-  if (!state.structure) return;
-  for (const t of TABS) {
-    const disabled = t.needsLog && !state.info;
-    tabsBar.append(h('button', {
-      class: `tab ${state.tab === t.id ? 'active' : ''} ${t.stage ? 'later' : ''}`,
-      disabled,
-      title: t.stage ? T.stageLater(t.stage) : '',
-      onclick: () => set({ tab: t.id }),
-    }, t.title));
+  // светофор карточек сводки — точкой у пункта меню, чтобы не открывать каждую вкладку
+  // (у вкладки бывает несколько карточек — берём худшую; «нет оценки» точкой не показываем)
+  const rank: Record<string, number> = { red: 3, yellow: 2, green: 1 };
+  const dotFor = new Map<string, string>();
+  for (const c of state.analysis?.cards ?? []) if ((rank[c.status] ?? 0) > (rank[dotFor.get(c.tab) ?? ''] ?? 0)) dotFor.set(c.tab, c.status);
+  for (const g of GROUPS) {
+    const items = TABS.filter((t) => t.group === g);
+    tabsBar.append(h('div', { class: 'side-group' }, T.nav[g]));
+    for (const t of items) {
+      const disabled = t.needsLog && !state.info;
+      const st = t.id === 'fc' ? (state.fc.phase === 'connected' ? 'green' : null) : dotFor.get(t.id);
+      tabsBar.append(h('button', {
+        class: `side-item ${state.tab === t.id ? 'active' : ''}`,
+        disabled,
+        title: t.stage ? T.stageLater(t.stage) : '',
+        onclick: () => set({ tab: t.id }),
+      }, h('span', { class: 'side-label' }, t.title), st && st !== 'green' ? h('span', { class: `dot ${st}` }) : t.id === 'fc' && st ? h('span', { class: 'dot green' }) : ''));
+    }
   }
 }
 

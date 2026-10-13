@@ -41,15 +41,17 @@ export function tuningView(): HTMLElement {
         h('h3', { style: 'margin:0;flex:1' }, t?.title ?? a.id),
         a.kind === 'tune' ? h('span', { class: `badge ${a.selected ? '' : 'yellow'}` }, a.selected ? T.adv.selected : T.adv.deferred[a.deferred ?? ''] ?? '') : null,
         h('span', { class: 'badge', title: 'ID и версия правила' }, T.adv.rule(a.id, a.version))),
+      // на виду — что увидели и что поменять; объяснения и проверка — по клику
       t ? [
         sec(T.adv.seen, t.seen(x)),
-        sec(T.adv.why, t.why),
         sec(T.adv.change, [t.change(x), tbl, sliders]),
+        h('details', { class: 'fold' }, h('summary', null, T.adv.details),
+        sec(T.adv.why, t.why),
         sec(T.adv.expect, [t.expect(x), effect,
           a.forecast?.length ? h('div', { class: 'small', style: 'font-style:italic' }, a.forecast.filter((f) => f.axis < 2).map((f) => h('div', null, T.adv.forecast(AXIS_NAMES[f.axis], f.now.overshoot, `${f.overshoot.mid.toFixed(0)} (${f.overshoot.lo.toFixed(0)}–${f.overshoot.hi.toFixed(0)})`, f.now.delayMs, `${f.delayMs.mid.toFixed(1)} (${f.delayMs.lo.toFixed(1)}–${f.delayMs.hi.toFixed(1)})`))))
             : isPid && changes.length ? h('div', { class: 'muted small' }, T.adv.pidForecast) : null]),
         sec(T.adv.risk, t.risk),
-        sec(T.adv.verify, t.verify),
+        sec(T.adv.verify, t.verify)),
       ] : null,
       a.caution ? h('div', { class: 'panel warn', style: 'margin:6px 0 0' }, T.inc.caution(a.caution.worse, a.caution.n, a.caution.incidents.join(', '))) : null,
       a.safety ? h('div', { class: 'panel bad', style: 'margin:6px 0 0' }, h('b', null, T.adv.safety)) : null,
