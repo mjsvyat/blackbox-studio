@@ -3,7 +3,7 @@
 // USB → слетать → снова «Автотюн». Серия — кампания борта с целью «autotune».
 
 import type { Advice } from '../../advisor/advisor';
-import { AutotuneCheckin, FEEL_TAGS, FeelTag, PropsState } from '../../autotune/autotune';
+import { AutotuneCheckin, FEEL_TAGS, FeelTag, PropsState, TUNE_STYLES } from '../../autotune/autotune';
 import { campaignSessions } from '../../campaigns/campaign';
 import { T } from '../../i18n/ru';
 import { cliDiff, cliValue } from '../../params/registry';
@@ -11,7 +11,7 @@ import { boardFor } from '../../sessions/boards';
 import { h } from '../dom';
 import { fcPrepare } from '../fcStore';
 import { helpBtn } from '../help';
-import { autotuneCampaign, autotuneSave, ensureAdvice, loadSessions, runAutotune, set, state } from '../store';
+import { autotuneCampaign, autotuneSave, ensureAdvice, loadSessions, runAutotune, set, setAutotuneStyle, state } from '../store';
 import { nextFlight } from './campaign';
 
 let loaded = false;
@@ -58,6 +58,9 @@ export function autotuneView(openFile: () => void): HTMLElement {
   const ready = d.props !== null && d.temp !== null;
   const form = h('div', { class: 'panel' },
     h('h3', { style: 'margin-top:0' }, A.step1, helpBtn('autotune-checkin')),
+    h('div', { class: 'small muted' }, A.styleTitle),
+    h('div', { class: 'row', style: 'flex-wrap:wrap;gap:6px;margin-bottom:8px' }, TUNE_STYLES.map((s) =>
+      h('button', { class: `btn small ${at.style === s ? 'primary' : ''}`, 'aria-pressed': at.style === s ? 'true' : 'false', title: A.styleHint[s], onclick: () => setAutotuneStyle(s) }, A.styles[s]))),
     h('div', { class: 'small muted' }, A.props),
     radio('props', (['ok', 'chipped', 'damaged'] as PropsState[]).map((p) => [p, A.propsOpt[p]]), d.props, (v) => { d.props = v; }),
     h('div', { class: 'small muted', style: 'margin-top:8px' }, A.motors),
@@ -86,6 +89,7 @@ export function autotuneView(openFile: () => void): HTMLElement {
     const notes = adv.advice.filter((a) => a.kind !== 'tune' && (a.severity === 'red' || a.id.startsWith('R-AT-') || a.kind === 'mechanic' || a.kind === 'flight'));
     out.append(h('div', { class: `panel ${tone === 'good' ? '' : tone}`, style: tone === 'good' ? 'border-left:4px solid var(--green)' : '' },
       h('h3', { style: 'margin-top:0' }, A.step2, ': ', vt.title, helpBtn('autotune-verdict')),
+      adv.autotune.stage ? h('div', { class: 'badge', title: A.stagesInfo }, A.stage(adv.autotune.stage)) : null,
       h('p', null, vt.text),
       chosen.length ? h('div', null, h('b', null, A.change), chosen.map(changeCard)) : h('div', { class: 'muted' }, A.noChange),
       notes.length ? h('div', { style: 'margin-top:8px' }, h('b', null, A.notes), h('ul', { class: 'small' }, notes.map((a) => h('li', null, h('b', null, T.adv.rules[a.id]?.title ?? a.id), ' — ', T.adv.rules[a.id]?.seen(a.inputs) ?? '', ' ', h('span', { class: 'muted' }, T.adv.rules[a.id]?.change(a.inputs) ?? ''))))) : null,

@@ -42,7 +42,7 @@ export interface Advice {
   selected: boolean;
   deferred?: 'mechanics-first' | 'max-changes' | 'same-param' | 'one-risky' | 'caution' | 'stability'
     // автотюн (autotune.ts): пропы, только откат, уже откатывали, моторы не горячие, пол «не душить», горячо, нравится
-    | 'props' | 'revert-only' | 'reverted' | 'not-hot' | 'floor' | 'hot' | 'happy';
+    | 'props' | 'revert-only' | 'reverted' | 'not-hot' | 'floor' | 'hot' | 'happy' | 'stage';
   /** на этом борту правило уже ухудшало результат (этап 6) */
   caution?: { worse: number; n: number; incidents: string[] };
   /** ожидаемый эффект по точной модели (фильтры) — заполняет воркер */
@@ -178,7 +178,10 @@ function pidChange(inp: AdvisorInput, slider: keyof SimplifiedPids, direct: 'P' 
 }
 
 export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}): AdvisorResult {
-  A = { ...cfg.advisor, ...override };
+  // характер полёта автотюна (sharper / smoother) — свои пороги PID поверх класса борта
+  const style = inp.board?.autotune?.style;
+  const styleOv = style ? ((cfg.autotune.styles as Record<string, Partial<AdvisorCfg>>)[style] ?? {}) : {};
+  A = { ...cfg.advisor, ...styleOv, ...override };
   const c: Ctx = { inp, out: [] };
   const N = cfg.noise, M = cfg.motors, P = cfg.power;
   const nz = inp.noise;

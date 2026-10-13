@@ -23,7 +23,7 @@ import { AskReason, BoardKey, boardFor, boardKeyFromHeader, matchBoard } from '.
 import { Campaign, GoalKind, SessionMark, campaignSessions, openCampaign } from '../campaigns/campaign';
 import { DEFAULT_CLASS } from '../config/classes';
 import { normalizeProfile } from '../sessions/profile';
-import { AutotuneCheckin, AutotuneCtx, revertFor, revertedRules, unfiltJump } from '../autotune/autotune';
+import { AutotuneCheckin, AutotuneCtx, TuneStyle, revertFor, revertedRules, unfiltJump } from '../autotune/autotune';
 
 export interface AppState {
   fileName: string | null;
@@ -98,8 +98,23 @@ export interface AutotuneUi {
   msg: { kind: 'ok' | 'bad'; text: string } | null;
   /** id сессии, в которую сохранён этот полёт */
   savedId: string | null;
+  /** характер полёта (Резче / Сбалансированно / Мягче) — запоминается в браузере */
+  style: TuneStyle;
 }
-const initialAutotune = (): AutotuneUi => ({ checkin: null, ctx: null, busy: false, msg: null, savedId: null });
+const savedStyle = (): TuneStyle => {
+  try {
+    const v = localStorage.getItem('bb-at-style');
+    return v === 'sharper' || v === 'smoother' ? v : 'balanced';
+  } catch {
+    return 'balanced';
+  }
+};
+const initialAutotune = (): AutotuneUi => ({ checkin: null, ctx: null, busy: false, msg: null, savedId: null, style: savedStyle() });
+
+export function setAutotuneStyle(style: TuneStyle): void {
+  try { localStorage.setItem('bb-at-style', style); } catch { /* приватный режим */ }
+  set({ autotune: { ...state.autotune, style } });
+}
 
 type Listener = (s: AppState, changed: Set<keyof AppState>) => void;
 
@@ -705,6 +720,7 @@ export async function runAutotune(checkin: AutotuneCheckin): Promise<void> {
       revert: prev ? revertFor(prev.snap, snap, checkin, c!.marks[prev.id]?.motorTemp ?? null) : null,
       unfiltJumpPct: unfiltJump(refs, snap),
       avoid: revertedRules(series.map((r) => r.snap)),
+      style: state.autotune.style,
     };
     setAt({ ctx });
     set({ advice: null });
