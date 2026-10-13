@@ -47,6 +47,8 @@ export interface Advice {
   caution?: { worse: number; n: number; incidents: string[] };
   /** ожидаемый эффект по точной модели (фильтры) — заполняет воркер */
   effect?: { delay100: [number, number]; delayD100: [number, number]; dterm: [number, number]; gyro: [number, number] };
+  /** «почему не больше»: изменение упёрлось в лимит класса борта (размер пропов) */
+  limited?: { key: string; wanted: number; cap: number }[];
   /** прогноз step response по модели оси (этап 7) — заполняет конвейер */
   forecast?: { axis: number; now: { overshoot: number; delayMs: number; settle: number }; overshoot: Range; delayMs: Range; settle: Range }[];
   priority: number;
@@ -361,6 +363,20 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     const keep = new Set(['R-MECH-NOISE-01', 'R-LOG-NO-UNFILT-01', 'R-LOG-RATE-01', 'R-SETUP-BIDIR-01']);
     c.out = c.out.filter((a) => keep.has(a.id));
     add(c, { id: 'R-LOG-BENCH-01', version: 1, kind: 'info', severity: 'yellow', inputs: {}, tab: 'noise', priority: -1 });
+  }
+
+  // ---------- лимиты по размеру пропов (как валидатор у fpvpidtune.com) ----------
+  // D и главный множитель не поднимаем выше лимита класса; упёрлось — пишем «почему не больше»
+  const L = A.limits;
+  for (const a of c.out) {
+    for (const [k, v] of Object.entries(a.changes)) {
+      const from = a.from[k];
+      if (!isNum(from) || v <= from) continue;
+      const cap = /^d_(roll|pitch)$|^d_max_(roll|pitch)$/.test(k) ? L.maxD : k === 'simplified_master_multiplier' ? L.maxMaster : null;
+      if (cap === null || v <= cap) continue;
+      (a.limited ??= []).push({ key: k, wanted: v, cap });
+      if (from >= cap) { delete a.changes[k]; delete a.from[k]; } else a.changes[k] = cap;
+    }
   }
 
   // ---------- знание о борте: отключённые правила, правила «с осторожностью» ----------

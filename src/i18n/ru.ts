@@ -486,6 +486,8 @@ export const T = {
   },
 
   adv: {
+    whyNotMore: 'Почему не больше',
+    limitedText: (key: string, wanted: number, cap: number, cls: string) => `${key}: хотелось ${wanted}, но для класса ${cls} лимит ${cap} — выше обычно греет моторы и звенит (лимиты по размеру пропов, analysis.json → advisor.limits)`,
     details: 'Почему, чего ждать, риск, как проверить',
     title: 'Настройка: советы',
     loading: 'Советчик думает…',

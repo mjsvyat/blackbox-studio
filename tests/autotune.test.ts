@@ -277,3 +277,16 @@ describe('автотюн: раунды и характер полёта (как 
     expect(sharp.autotune!.style).toBe('sharper');
   });
 });
+
+describe('лимиты по размеру пропов («почему не больше»)', () => {
+  it('D выше лимита класса не поднимаем — упирается в лимит и объясняет', () => {
+    const pid = pidWith(30);
+    pid.gains.D = [58, 59, 0];
+    // без Simplified: D по осям напрямую (+10 %)
+    const r = runAdvisor(input({ pid, simplified: null }, { filt: [2, 2, 2], dterm: [3, 2, null] }));
+    const a = r.advice.find((x) => x.id === 'R-PID-OVERSHOOT-01')!;
+    expect(a.changes.d_roll).toBe(60);
+    expect(a.changes.d_pitch).toBe(60);
+    expect(a.limited!.map((l) => l.key)).toEqual(['d_roll', 'd_pitch']);
+  });
+});

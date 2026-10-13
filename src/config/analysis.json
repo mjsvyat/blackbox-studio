@@ -333,6 +333,13 @@
         "now": "R-LOG-BENCH-01, полётные правила на таком логе не срабатывают",
         "why": "в чате Blackbox 2.0 тест моторов без пропов — стандартная диагностика; на 9 таких логах из 232 утилита выдавала красную механику",
         "by": "docs/knowledge/blackbox_two.md"
+      },
+      {
+        "version": "1.6",
+        "was": "D и главный множитель ограничивал только диапазон параметра",
+        "now": "лимиты класса advisor.limits и «почему не больше»",
+        "why": "валидатор по размеру пропов как у fpvpidtune.com; значения стартовые — по типичным настройкам из разборов чата",
+        "by": "docs/knowledge/blackbox_two.md"
       }
     ],
     "dynIdleRpm": 25,
@@ -350,7 +357,12 @@
     "benchThrMaxPct": 3,
     "benchShare": 0.8,
     "benchMinS": 3,
-    "_unitBench": "тест моторов на столе: моторы крутятся (средняя команда ≥ benchMotorMin) не меньше benchMinS с, и в ≥ benchShare этого времени стик газа < benchThrMaxPct % — R-LOG-BENCH-01, полётные правила не применяются"
+    "_unitBench": "тест моторов на столе: моторы крутятся (средняя команда ≥ benchMotorMin) не меньше benchMinS с, и в ≥ benchShare этого времени стик газа < benchThrMaxPct % — R-LOG-BENCH-01, полётные правила не применяются",
+    "limits": {
+      "maxD": 60,
+      "maxMaster": 160
+    },
+    "_unitLimits": "лимиты по размеру пропов: D (ролл/питч, и D max) и главный множитель Simplified советчик выше не поднимает; упёрлось — в совете «почему не больше». Стартовые: 5\" — по типичным значениям в разборах чата Blackbox 2.0 (D 30–45, множитель ≤ 1.5); для других классов — в classes"
   },
   "compare": {
     "thrBins": 10,
@@ -550,7 +562,11 @@
         "overrides": {
           "advisor": {
             "dynIdleRpm": 90,
-            "gyroDelayTargetMs": 1.5
+            "gyroDelayTargetMs": 1.5,
+            "limits": {
+              "maxD": 100,
+              "maxMaster": 180
+            }
           }
         }
       },
@@ -560,7 +576,11 @@
         "overrides": {
           "advisor": {
             "dynIdleRpm": 70,
-            "gyroDelayTargetMs": 1.5
+            "gyroDelayTargetMs": 1.5,
+            "limits": {
+              "maxD": 90,
+              "maxMaster": 180
+            }
           }
         }
       },
@@ -570,7 +590,11 @@
         "overrides": {
           "advisor": {
             "dynIdleRpm": 40,
-            "gyroDelayTargetMs": 1.75
+            "gyroDelayTargetMs": 1.75,
+            "limits": {
+              "maxD": 70,
+              "maxMaster": 170
+            }
           }
         }
       },
@@ -584,7 +608,11 @@
         "overrides": {
           "advisor": {
             "dynIdleRpm": 18,
-            "minGyroCutoffHz": 80
+            "minGyroCutoffHz": 80,
+            "limits": {
+              "maxD": 55,
+              "maxMaster": 140
+            }
           }
         }
       },
@@ -595,7 +623,11 @@
           "advisor": {
             "dynIdleRpm": 14,
             "minGyroCutoffHz": 50,
-            "gyroDelayTargetMs": 3
+            "gyroDelayTargetMs": 3,
+            "limits": {
+              "maxD": 45,
+              "maxMaster": 120
+            }
           }
         }
       }
@@ -614,6 +646,11 @@
       {
         "version": "1.5",
         "why": "ориентиры задержки фильтров гиро по размеру (чат: 2.5\" 1.5, 3\" 1.75, 5\" 2 мс; 10\" — экстраполяция) и минимальный срез гиро (7\" 80 Гц, 10\"+ 50 Гц)",
+        "by": "docs/knowledge/blackbox_two.md"
+      },
+      {
+        "version": "1.6",
+        "why": "лимиты D и главного множителя по классу (размер пропов) — стартовые, по типичным настройкам из разборов чата Blackbox 2.0; больше пропы — ниже лимит",
         "by": "docs/knowledge/blackbox_two.md"
       }
     ]
