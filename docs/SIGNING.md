@@ -61,7 +61,7 @@ SignPath пропускаются.
 ## Проверить скачанный файл
 
 ```powershell
-certutil -hashfile BlackboxStudio-Setup-v1.08.26.exe SHA256
+certutil -hashfile BlackboxStudio-Setup-v1.08.27.exe SHA256
 ```
 
 Сумма должна совпасть со строкой в `SHA256SUMS.txt` из того же релиза. Подпись — правый клик по

@@ -1,9 +1,9 @@
 {
   "name": "blackbox-studio",
   "private": true,
-  "version": "1.8.26",
+  "version": "1.8.27",
   "license": "MIT",
-  "releaseName": "1.08.26",
+  "releaseName": "1.08.27",
   "type": "module",
   "description": "Локальная утилита разбора и настройки по блэкбоксу Betaflight",
   "scripts": {
