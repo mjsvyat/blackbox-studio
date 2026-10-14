@@ -56,8 +56,7 @@ export function filtersView(track: (d: () => void) => void): HTMLElement {
       T.filt.modelSpec(v.spectralDb.map((x) => fmt(x, 1)).join(' / ')), ' · ',
       T.filt.modelD(v.dCorr.map((x) => fmt(x, 2)).join(' / ')), ' · ',
       T.filt.modelData(base.seconds, v.logHz, v.pidHz)),
-    h('p', { style: 'margin:6px 0 0' }, T.filt.reason[v.reason] ?? ''),
-    h('div', { class: 'muted small' }, T.filt.exactNote));
+    h('p', { style: 'margin:6px 0 0' }, T.filt.reason[v.reason] ?? ''));
 
   // ---------- примерка: управление ----------
   const sb = state.sandbox ?? { ...F.params };
@@ -106,7 +105,7 @@ export function filtersView(track: (d: () => void) => void): HTMLElement {
   const busy = h('span', { class: 'muted small', style: 'visibility:hidden' }, T.filt.busy);
   const controls = h('div', { class: 'panel' },
     h('h3', { style: 'margin-top:0' }, T.filt.sandbox, helpBtn('filter-sandbox'), busy),
-    h('div', { class: 'muted small' }, T.filt.sandboxHint, ' ', T.filt.simHint),
+    h('div', { class: 'muted small' }, T.filt.sandboxHint),
     simRow('simplified_gyro_filter_multiplier', T.filt.simGyro),
     simRow('simplified_dterm_filter_multiplier', T.filt.simD),
     h('div', { class: 'row', style: 'margin-top:8px' },

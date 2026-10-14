@@ -39,8 +39,7 @@ export function ratesView(track: (d: () => void) => void): HTMLElement {
     ck.reason !== 'no-fields' ? h('div', null, h('b', null, T.rates.checkMatch(matchTxt))) : null,
     ck.reason !== 'no-fields' ? h('div', { class: 'muted small' }, T.rates.checkErr(errTxt), ' · ', T.rates.checkData(R.seconds, R.smoothHz)) : null,
     h('p', { style: 'margin:6px 0 0' }, T.rates.checkReason[ck.reason] ?? ''),
-    ck.nonRateS > 0.05 ? h('div', { class: 'muted small' }, T.rates.nonRate(ck.nonRateS, ck.nonRateModes.join(', '))) : null,
-    h('div', { class: 'muted small' }, T.rates.exactNote));
+    ck.nonRateS > 0.05 ? h('div', { class: 'muted small' }, T.rates.nonRate(ck.nonRateS, ck.nonRateModes.join(', '))) : null);
 
   // ---------- примерка: управление ----------
   const sb = (): RateProfile => state.ratesSandbox ?? cloneProfile(base);

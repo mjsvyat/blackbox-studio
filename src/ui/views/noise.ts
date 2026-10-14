@@ -75,10 +75,7 @@ export function noiseView(track: (d: () => void) => void): HTMLElement {
       h('td', null, fmt(x.rmsDterm, 1)), h('td', null, fmt(x.rmsMid, 1, ' °/с'))))));
 
   const notes = h('div', { class: 'muted small' },
-    T.noise.nyquist(N.nyquist), helpBtn('nyquist'), ' ',
-    N.motorHzMedian ? T.noise.motorHz(N.motorHzMedian) : '',
-    N.bursts.length ? ` · ${T.phrase.bursts(N.bursts.length)}` : '',
-    ` · сегментов БПФ: ${N.segments}`);
+    [N.motorHzMedian ? T.noise.motorHz(N.motorHzMedian) : '', N.bursts.length ? T.phrase.bursts(N.bursts.length) : ''].filter(Boolean).join(' · '));
 
   return h('div', null,
     h('h2', null, T.noise.title, helpBtn('card-noise')),
