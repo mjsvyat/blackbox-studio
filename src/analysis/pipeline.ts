@@ -97,7 +97,7 @@ export function analyzeLog(c: LogContext, range: { t0: number; t1: number } | nu
   return { c, fm, nz, h, filters, pid, maneuvers, logCheck, sysid, chirp, cards };
 }
 
-/** советы + ожидаемый эффект советов по фильтрам (точная модель, как в песочнице) */
+/** советы + ожидаемый эффект советов по фильтрам (точная модель, как в примерке) */
 export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => void = () => {}, board?: BoardKnowledge, override: Record<string, unknown> = {}): AdvisorResult {
   const { c, nz, h, filters: f } = a;
   const inp = advisorInputFrom(c, nz, h, f ? { params: f.params, status: f.base.validation.status, reason: f.base.validation.reason } : null, a.pid, simplifiedFromHeader(c.log.header));
@@ -202,7 +202,7 @@ export function applyPidChanges(g: PidGains, ch: Record<string, number>): PidGai
   return out;
 }
 
-/** прогноз с кривыми (песочница PID) */
+/** прогноз с кривыми (примерка PID) */
 export function pidForecastCurves(a: Analysis, changes: Record<string, number>, bandScale = 1): AxisForecast[] {
   if (!a.sysid || !a.pid) return [];
   const g = gainsRatio(gainsFromHeader(a.c.log.header), applyPidChanges(gainsFromHeader(a.c.log.header), changes), filterDelays(a, changes));

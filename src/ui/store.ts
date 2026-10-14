@@ -38,7 +38,7 @@ export interface AppState {
   progress: { stage: string; fraction: number } | null;
   error: string | null;
   filters: FiltersPayload | null;
-  /** настройки в песочнице */
+  /** настройки в примерке */
   sandbox: FilterParams | null;
   sandboxEval: FilterEval | null;
   sandboxBusy: boolean;
@@ -69,7 +69,7 @@ export interface AppState {
   rollbackFor: string | null;
   /** знание о борте открытого лога (для советчика) */
   board: BoardKnowledge | null;
-  /** песочница PID: изменения CLI и прогноз модели */
+  /** примерка PID: изменения CLI и прогноз модели */
   pidSandbox: Record<string, number> | null;
   pidForecast: AxisForecast[] | null;
   pidBusy: boolean;
@@ -212,7 +212,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     case 'filters':
       if (state.sandbox) {
-        // участок анализа поменялся — песочницу пересчитать на новых данных
+        // участок анализа поменялся — примерку пересчитать на новых данных
         set({ filters: m.payload, progress: null });
         requestSandbox(state.sandbox);
       } else set({ filters: m.payload, sandbox: { ...m.payload.params }, sandboxEval: m.payload.base.current, progress: null });
@@ -222,7 +222,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
       break;
     case 'rates':
       set({ rates: m.payload, ratesWhy: m.payload ? null : m.why ?? 'unknown', progress: null });
-      // участок анализа поменялся, а в песочнице уже что-то есть — пересчитать
+      // участок анализа поменялся, а в примерке уже что-то есть — пересчитать
       if (m.payload) requestRatesEval(state.ratesSandbox ?? m.payload.profile, 0);
       break;
     case 'ratesEval':
@@ -301,7 +301,7 @@ export function ensureFilters(): void {
 
 let sandboxReq = 0;
 let sandboxTimer: ReturnType<typeof setTimeout> | null = null;
-/** пересчёт песочницы с задержкой (ползунки двигаются часто) */
+/** пересчёт примерки с задержкой (ползунки двигаются часто) */
 export function requestSandbox(params: FilterParams): void {
   set({ sandbox: params, sandboxBusy: true });
   if (sandboxTimer) clearTimeout(sandboxTimer);
@@ -324,7 +324,7 @@ export function ensureRates(): void {
 
 let ratesReq = 0;
 let ratesTimer: ReturnType<typeof setTimeout> | null = null;
-/** пересчёт setpoint под рейты песочницы (кривые считаются в UI мгновенно, это — манёвры) */
+/** пересчёт setpoint под рейты примерки (кривые считаются в UI мгновенно, это — манёвры) */
 export function requestRatesEval(profile: RateProfile, delayMs = 150): void {
   set({ ratesSandbox: profile, ratesBusy: true });
   if (ratesTimer) clearTimeout(ratesTimer);

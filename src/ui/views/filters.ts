@@ -1,4 +1,4 @@
-// Вкладка «Фильтры»: самопроверка модели, текущая цепочка, песочница (Simplified +
+// Вкладка «Фильтры»: самопроверка модели, текущая цепочка, примерка (Simplified +
 // все параметры), «что изменится», CLI, спектры, АЧХ, задержка, дорожки дин. фильтров.
 
 import { fcPrepare } from '../fcStore';
@@ -59,7 +59,7 @@ export function filtersView(track: (d: () => void) => void): HTMLElement {
     h('p', { style: 'margin:6px 0 0' }, T.filt.reason[v.reason] ?? ''),
     h('div', { class: 'muted small' }, T.filt.exactNote));
 
-  // ---------- песочница: управление ----------
+  // ---------- примерка: управление ----------
   const sb = state.sandbox ?? { ...F.params };
   const inputs = new Map<string, HTMLInputElement | HTMLSelectElement>();
   const commit = (next: FilterParams): void => {

@@ -76,7 +76,7 @@ export function tuningView(): HTMLElement {
   out.append(h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.adv.cliTitle, text ? copyBtn : null, text ? usb : null),
     text ? h('pre', { style: 'margin:0;padding:8px;background:var(--bg3);border-radius:6px;overflow:auto' }, text) : h('div', { class: 'muted' }, T.adv.cliEmpty),
     text ? h('div', { class: 'muted small' }, T.adv.cliNote) : null));
-  // песочница фильтров должна быть готова для кнопки «открыть в песочнице»
+  // примерка фильтров должна быть готова для кнопки «открыть в примерке»
   ensureFilters();
   return out;
 }

@@ -1,4 +1,4 @@
-// Вкладка «Рейты»: самопроверка формулы, песочница (все rates_type), кривые с
+// Вкладка «Рейты»: самопроверка формулы, примерка (все rates_type), кривые с
 // гистограммой стиков, использование стиков, манёвры «было → стало бы», CLI.
 
 import { fcPrepare } from '../fcStore';
@@ -42,7 +42,7 @@ export function ratesView(track: (d: () => void) => void): HTMLElement {
     ck.nonRateS > 0.05 ? h('div', { class: 'muted small' }, T.rates.nonRate(ck.nonRateS, ck.nonRateModes.join(', '))) : null,
     h('div', { class: 'muted small' }, T.rates.exactNote));
 
-  // ---------- песочница: управление ----------
+  // ---------- примерка: управление ----------
   const sb = (): RateProfile => state.ratesSandbox ?? cloneProfile(base);
   const inputs: { ax: number; f: Field; el: HTMLInputElement }[] = [];
   const labels: HTMLElement[][] = [];
@@ -165,7 +165,7 @@ export function ratesView(track: (d: () => void) => void): HTMLElement {
     curves.append(ch.el);
   };
 
-  // использование стиков — не зависит от песочницы, строится один раз
+  // использование стиков — не зависит от примерки, строится один раз
   {
     const hBars = (vals: number[], title: string): HTMLElement => {
       const mx = Math.max(1e-9, ...vals);
@@ -187,7 +187,7 @@ export function ratesView(track: (d: () => void) => void): HTMLElement {
       h('div', { class: 'row', style: 'align-items:flex-start;gap:16px' }, [0, 1, 2].map((ax) => hBars(R.hist.axes[ax], AXIS_NAMES[ax])), hBars(R.hist.throttle, T.rates.throttle)),
       h('div', { class: 'muted small', style: 'margin:4px 0 8px' }, T.rates.histNote(R.seconds)),
       h('table', { class: 'grid' },
-        h('thead', null, h('tr', null, h('th', null, '', helpBtn('rates-usage')), ...AXIS_NAMES.map((n) => h('th', null, n)))),
+        h('thead', null, h('tr', null, h('th', null, T.rates.uMetric, ' ', helpBtn('rates-usage')), ...AXIS_NAMES.map((n) => h('th', null, n)))),
         h('tbody', null,
           urow(T.rates.uCenter, U.map((u) => `${fmt(u.centerPct, 0)} %`)),
           urow(T.rates.uFull, U.map((u) => `${fmt(u.fullPct, 1)} %`)),

@@ -24,8 +24,14 @@ function append(el: Element, children: Child[]): void {
   for (const c of children) {
     if (c === null || c === undefined || c === false) continue;
     if (Array.isArray(c)) append(el, c);
-    else el.append(c instanceof Node ? c : String(c));
+    else el.append(c instanceof Node ? c : nbsp(String(c)));
   }
+}
+
+/** число и единица не разрываются переносом строки («10 %», «2.63 мс», «≥ 30») */
+const UNIT = /(\d) (?=(?:%|мс|мкс|Гц|кГц|с|дБ|°\/с|°|В|А|мА|мОм|об\/мин|мм|КиБ|МиБ|Б|S)(?!\p{L}))/gu;
+export function nbsp(s: string): string {
+  return s.replace(UNIT, '$1\u00A0').replace(/([≥≤<>±≈×]) (?=\d)/g, '$1\u00A0');
 }
 
 export function clear(el: Element): void {
