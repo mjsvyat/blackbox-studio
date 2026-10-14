@@ -1,4 +1,4 @@
-// Chirp-идентификация по логу (C). Сверено с BF 2026.6.1 (ссылки — PLAN.md, раздел C):
+// Chirp-идентификация по логу (C). Сверено с BF 2026.6.1 (ссылки — docs/dev/PLAN.md, раздел C):
 //  - режим CHIRP (бокс CHIRP, флаг в flightModeFlags — номер по таблице версии), при каждом
 //    включении — следующая ось (ролл → питч → яв); генератор common/chirp.c: экспоненциальный
 //    chirp chirp_frequency_start_deci_hz → _end_deci_hz за chirp_time_seconds, амплитуда

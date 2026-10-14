@@ -1,4 +1,4 @@
-// Правила по скриншотам экспертов чата Blackbox 2.0 (docs/knowledge/blackbox_two.md, раздел 8):
+// Правила по скриншотам экспертов чата Blackbox 2.0 (docs/dev/knowledge/blackbox_two.md, раздел 8):
 // гиро-лоупассы при RPM-фильтрах, число динамических нотчей, частота пакетов линка.
 import { afterEach, describe, expect, it } from 'vitest';
 import { AdvisorInput, LpfOffCandidate, runAdvisor, setupFromHeader } from '../src/advisor/advisor';

@@ -6,7 +6,7 @@ import cfg from '../config/analysis.json';
 //  - любая запись (сейчас — только стирание флешки) — после свежей проверки «не заармлен»
 //    (MSP_STATUS_EX, бит ARM) прямо перед командой; вызывается только по нажатию пользователя;
 //  - неподдерживаемая прошивка (не Betaflight, API < 1.46) — ничего не пишем.
-// Форматы ответов — по src/main/msp/msp.c BF 2026.6.1 (ссылки в PLAN.md).
+// Форматы ответов — по src/main/msp/msp.c BF 2026.6.1 (ссылки в docs/dev/PLAN.md).
 
 import { MSP, MspFrame, MspParser, Reader, Writer, encodeV2 } from './msp';
 import { CliConfig, cliAllowed, effectiveValues, getValue, parseConfig, setName, setResult } from './cli';

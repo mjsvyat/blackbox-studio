@@ -301,7 +301,7 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     }
   }
 
-  // ---------- ориентиры чата Blackbox 2.0 (docs/knowledge/blackbox_two.md) ----------
+  // ---------- ориентиры чата Blackbox 2.0 (docs/dev/knowledge/blackbox_two.md) ----------
   // лог без полного газа: шум на верхах не виден — ослаблять фильтры по нему нельзя
   const thrTop = inp.flight?.thrTop;
   if (isNum(thrTop) && thrTop < A.fullThrottlePct) add(c, { id: 'R-LOG-THROTTLE-01', version: 1, kind: 'info', severity: 'yellow', inputs: { top: Math.round(thrTop), need: A.fullThrottlePct }, tab: 'noise', priority: 92 });

@@ -2,8 +2,6 @@
 tests/fixtures/*.txt binary
 tests/fixtures/*.bbl binary
 tests/fixtures/*.bfl binary
-# Большой дамп (132 МБ) — через Git LFS
-tests/fixtures/blackbox.txt filter=lfs diff=lfs merge=lfs -text
 # Исходники — LF
 *.ts text eol=lf
 *.md text eol=lf

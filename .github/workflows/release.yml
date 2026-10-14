@@ -26,7 +26,11 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      # подпись через SignPath Foundation (бесплатно для open source) — включается сама,
+      # когда в Settings → Secrets есть SIGNPATH_API_TOKEN (docs/SIGNING.md)
+      SIGNPATH_ON: ${{ secrets.SIGNPATH_API_TOKEN != '' && github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -72,6 +76,41 @@ jobs:
           npm ci
           npm run dist
 
+      - name: Неподписанные exe — для SignPath
+        id: unsigned
+        if: env.SIGNPATH_ON == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: unsigned-exe
+          path: desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Подпись через SignPath
+        if: env.SIGNPATH_ON == 'true'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'blackbox-studio' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: desktop/release/signed
+
+      - name: Подписанные exe — на место, контрольные суммы заново
+        if: env.SIGNPATH_ON == 'true'
+        shell: pwsh
+        run: |
+          Copy-Item desktop/release/signed/*.exe desktop/release/ -Force
+          Remove-Item desktop/release/signed -Recurse -Force
+          Set-Content desktop/release/signing.txt 'SignPath Foundation (signpath.org)'
+          Push-Location desktop/release
+          Get-ChildItem *.exe, *.html | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content SHA256SUMS.txt
+          Pop-Location
+
       - name: Проверка подписи
         shell: pwsh
         run: |
@@ -105,4 +144,5 @@ jobs:
             desktop/release/BlackboxStudio-Portable-${{ steps.v.outputs.tag }}.exe
             desktop/release/BlackboxStudio-${{ steps.v.outputs.tag }}-web.html
             desktop/release/SHA256SUMS.txt
+            docs/Blackbox-Studio-instrukciya.pdf
           fail_on_unmatched_files: true

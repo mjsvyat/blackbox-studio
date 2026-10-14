@@ -1,4 +1,4 @@
-// Правила по инструкциям чата Blackbox 2.0 (docs/knowledge/blackbox_two.md): динамический
+// Правила по инструкциям чата Blackbox 2.0 (docs/dev/knowledge/blackbox_two.md): динамический
 // холостой ход по классу, LPF2 при PID медленнее гиро, обязательные фильтры D-term.
 import { afterEach, describe, expect, it } from 'vitest';
 import { AdvisorInput, runAdvisor, setupFromHeader } from '../src/advisor/advisor';

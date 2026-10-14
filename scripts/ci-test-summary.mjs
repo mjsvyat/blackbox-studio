@@ -1,8 +1,8 @@
 // Сводка тестов для CI: сколько прошло, сколько пропущено и почему.
 // Вход — JSON-отчёт vitest (`--reporter=json --outputFile.json=…`), выход — Markdown в
 // $GITHUB_STEP_SUMMARY (или в stdout локально) и аннотация ::notice про пропуски.
-// Пропуски в CI ожидаемы: большой дамп (Git LFS, 132 МБ) в CI не скачивается, его тесты
-// пропускаются через hasFixture(); полный прогон — локально после `git lfs pull`.
+// Пропуски в CI ожидаемы: логи-фикстуры (tests/fixtures) в репозиторий не входят, их тесты
+// пропускаются через hasFixture(); полный прогон — локально, с логами на диске.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -46,8 +46,8 @@ if (skipped.size) {
   out.push('### Пропущены и почему');
   out.push(
     lfsPointer
-      ? 'Большой дамп `tests/fixtures/blackbox.txt` (BF 4.5.2, 132 МБ, Git LFS) в CI не скачивается — бесплатный лимит LFS 1 ГБ/мес. ' +
-          'Его тесты пропускаются, а часть (по логам дампа) без файла даже не создаётся. **Полный прогон — локально: `git lfs pull && npm test`.**'
+      ? 'Настоящих логов (`tests/fixtures/*.txt`) в репозитории нет — в них GPS и ID полётника. ' +
+          'Тесты на них пропускаются. **Полный прогон — локально, с логами в tests/fixtures/.**'
       : 'Пропуски не связаны с большим дампом — проверь `skipIf` в тестах ниже.',
   );
   out.push('');
@@ -60,4 +60,4 @@ const md = out.join('\n') + '\n';
 if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
 else process.stdout.write(md);
 const nSkip = r.numPendingTests + r.numTodoTests;
-if (nSkip && process.env.GITHUB_ACTIONS) console.log(`::notice title=Пропущено тестов: ${nSkip}::${lfsPointer ? 'Большой дамп (Git LFS) в CI не скачивается. Полный прогон — локально: git lfs pull && npm test' : 'см. сводку'}`);
+if (nSkip && process.env.GITHUB_ACTIONS) console.log(`::notice title=Пропущено тестов: ${nSkip}::${lfsPointer ? 'Логов-фикстур в репозитории нет. Полный прогон — локально' : 'см. сводку'}`);

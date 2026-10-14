@@ -4,3 +4,8 @@ dist
 *.log
 test-results.json
 !desktop/build/
+.claude/
+# настоящие логи: GPS и ID полётника — только локально
+tests/fixtures/*.txt
+tests/fixtures/*.bbl
+tests/fixtures/*.bfl

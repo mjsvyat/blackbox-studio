@@ -221,7 +221,7 @@ describe('chirp в логе: поиск участка, запасы, модел
     const fm = identifyAxis(0, decimate(ff, use, FS, cfg.sysid.decimHz), { mean: st.mean, parts: st.parts, enough: true });
     const cmp = compareModels(fm, cm);
     // на синтетике «фристайл» стационарен — обе полосы ниже минимальной полуширины прогноза
-    // (sysid.bandMinPp); «по chirp уже» проверяется только на настоящем chirp-логе (PLAN.md, C)
+    // (sysid.bandMinPp); «по chirp уже» проверяется только на настоящем chirp-логе (docs/dev/PLAN.md, C)
     expect(cmp.chirpBandPp).toBeLessThan(cfg.sysid.bandMinPp);
     expect(cmp.flightBandPp!).toBeLessThan(cfg.sysid.bandMinPp);
     expect(cmp.chirpFit).toBeGreaterThan(90);
@@ -230,7 +230,7 @@ describe('chirp в логе: поиск участка, запасы, модел
     const y = stepSim(cm.plant, cm.ctrl, g, Math.round(0.5 * cm.fs), cm.fs);
     const pm = stepMetrics({ t: Float32Array.from({ length: y.length }, (_, i) => i / cm.fs), mean: Float32Array.from(y) });
     expect(Math.abs(pm.overshootPct - trueStep(T, g).overshootPct)).toBeLessThan(4);
-    // печать для PLAN.md
+    // печать для docs/dev/PLAN.md
     console.log(`полоса прогноза (D ×1.2): фристайл ${cmp.flightBandPp!.toFixed(1)} п.п., chirp ${cmp.chirpBandPp.toFixed(1)} п.п.; совпадение ${cmp.flightFit?.toFixed(0)} % / ${cmp.chirpFit.toFixed(0)} %`);
   });
 });

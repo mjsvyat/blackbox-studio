@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Blackbox Studio — инструкция</title>
+<!-- Исходник PDF-инструкции. Сборка: node scripts/build-instruction.mjs → docs/Blackbox-Studio-instrukciya.pdf -->
+<style>
+  @page { size: A4; margin: 16mm 16mm 18mm; }
+  :root { --acc: #4ea1ff; --acc2: #8b6cff; --fg: #1b1f27; --fg2: #555d6b; --line: #e3e6ec; --bg2: #f4f6f9; --green: #23a55a; --yellow: #d79b00; --red: #e5484d; }
+  * { box-sizing: border-box; }
+  body { font: 10.5pt/1.5 "Segoe UI", Inter, Arial, sans-serif; color: var(--fg); margin: 0; }
+  h1 { font-size: 30pt; margin: 0 0 4mm; letter-spacing: -0.02em; }
+  h2 { break-inside: avoid; font-size: 15pt; margin: 9mm 0 3mm; padding-bottom: 1.5mm; border-bottom: 2px solid var(--line); display: flex; align-items: center; gap: 3mm; break-after: avoid; }
+  h2 .n { display: inline-flex; width: 8mm; height: 8mm; border-radius: 50%; background: linear-gradient(135deg, var(--acc), var(--acc2)); color: #fff; font-size: 11pt; align-items: center; justify-content: center; }
+  h3 { font-size: 11.5pt; margin: 5mm 0 2mm; break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  ol, ul { margin: 0 0 3mm; padding-left: 6mm; }
+  li { margin: 1mm 0; }
+  b.ui { background: var(--bg2); border: 1px solid var(--line); border-radius: 4px; padding: 0 1.5mm; font-weight: 600; white-space: nowrap; }
+  code { font: 9.5pt Consolas, monospace; background: var(--bg2); border-radius: 3px; padding: 0 1mm; }
+  .muted { color: var(--fg2); }
+  .cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; break-after: page; }
+  .cover .logo { width: 22mm; height: 22mm; border-radius: 6mm; margin-bottom: 8mm; }
+  .cover .sub { font-size: 14pt; color: var(--fg2); max-width: 150mm; }
+  .cover .what { margin-top: 12mm; display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; max-width: 165mm; }
+  .cover .what div { background: var(--bg2); border-radius: 3mm; padding: 4mm; }
+  .cover .what b { display: block; margin-bottom: 1mm; }
+  .cover .foot { margin-top: auto; color: var(--fg2); font-size: 9.5pt; }
+  tr { break-inside: avoid; }
+  .shot { width: 100%; max-height: 92mm; object-fit: cover; object-position: top; border-radius: 2mm; border: 1px solid var(--line); margin: 2mm 0 1mm; }
+  .cap { font-size: 9pt; color: var(--fg2); margin-bottom: 4mm; }
+  .box { border-radius: 3mm; padding: 3.5mm 4.5mm; margin: 3mm 0 4mm; break-inside: avoid; }
+  .box.tip { background: #eef6ff; border-left: 4px solid var(--acc); }
+  .box.warn { background: #fff7e6; border-left: 4px solid var(--yellow); }
+  .box.mail { background: linear-gradient(135deg, #eef6ff, #f3efff); border: 1px solid #d9e2ff; }
+  .box.mail .addr { font-size: 15pt; font-weight: 700; color: #2b5fd9; margin: 1mm 0 2mm; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+  .lights span { display: inline-block; width: 3mm; height: 3mm; border-radius: 50%; margin-right: 1.5mm; vertical-align: middle; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 4mm; font-size: 10pt; }
+  td, th { border-bottom: 1px solid var(--line); padding: 1.8mm 2mm; text-align: left; vertical-align: top; }
+  th { color: var(--fg2); font-weight: 600; font-size: 9pt; }
+  .page { break-before: page; }
+  .steps li::marker { color: var(--acc); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <img class="logo" src="../../desktop/build/icon.png" alt="">
+  <h1>Blackbox Studio</h1>
+  <div class="sub">Разбор и настройка FPV-квадрокоптера по блэкбоксу Betaflight.
+    Открыл лог — получил понятный ответ: что не так, что крутить и чем за это платишь.</div>
+  <div class="what">
+    <div><b>Светофор по логу</b>Шумы, фильтры, PID, моторы, питание, связь — с объяснением каждой цифры.</div>
+    <div><b>Советы с CLI</b>Сначала механика, потом не больше двух изменений за полёт.</div>
+    <div><b>Примерка</b>Фильтры и рейты пересчитываются на твоём полёте ещё до вылета.</div>
+    <div><b>Автотюн</b>Разобрал → записал на борт по USB → слетал → разобрал снова.</div>
+  </div>
+  <div class="foot">Инструкция для пилотов и тестеров · работает без интернета, логи остаются на компьютере</div>
+</section>
+
+<h2><span class="n">1</span> Установка</h2>
+<table>
+  <tr><th>Файл</th><th>Что это</th></tr>
+  <tr><td><code>BlackboxStudio-Setup-….exe</code></td><td>Установщик для Windows 10/11 — рекомендуется</td></tr>
+  <tr><td><code>BlackboxStudio-Portable-….exe</code></td><td>Без установки, можно запускать с флешки</td></tr>
+  <tr><td><code>BlackboxStudio-…-web.html</code></td><td>Тот же интерфейс в Chrome или Edge — для macOS и Linux</td></tr>
+</table>
+<div class="box warn"><b>Windows пишет «Система Windows защитила ваш компьютер»?</b> Нажми
+  <b class="ui">Подробнее</b> → <b class="ui">Выполнить в любом случае</b>. Так Windows встречает любую новую
+  программу, у которой ещё нет «репутации».</div>
+
+<h2><span class="n">2</span> Записать правильный лог</h2>
+<p>Проще всего: подключи полётник по USB <b>без аккумулятора</b> → вкладка <b class="ui">Полётник</b> →
+  <b class="ui">Подключить</b> → <b class="ui">Подготовить запись лога</b>. Программа покажет строки, запишет их по кнопке
+  и при необходимости откатит.</p>
+<p class="muted">Вручную: частота записи не ниже 1.6 кГц (обычно 2 кГц), гироскоп до фильтров включён (на прошивках
+  до 4.5 — <code>set debug_mode = GYRO_SCALED</code>).</p>
+<h3>Как слетать для разбора (1–2 минуты)</h3>
+<ul>
+  <li>20–30 с висения;</li>
+  <li>несколько раз плавно газ от висения до 100 %;</li>
+  <li>резкие движения стиком по ролу и питчу (на 30–60 % хода и обратно), пара флипов;</li>
+  <li>пара резких сбросов газа с полного.</li>
+</ul>
+<p>Сразу после посадки потрогай моторы: холодные, тёплые или горячие — это пригодится.</p>
+
+<h2 class="page"><span class="n">3</span> Разобрать лог</h2>
+<ol class="steps">
+  <li><b class="ui">Открыть лог…</b> или перетащи файл в окно. Можно весь дамп флешки — программа покажет список логов.</li>
+  <li><b class="ui">Сводка</b> — светофор. У каждой цифры есть <b class="ui">?</b>: что это, почему плохо, что крутить.</li>
+  <li><b class="ui">Настройка</b> — советы по порядку: сначала механика, потом изменения настроек и готовые строки CLI.</li>
+</ol>
+<img class="shot" src="../img/summary.png" alt="">
+<div class="cap">Сводка: «Главное» сверху, ниже — хватает ли данных в логе и карточки по разделам.</div>
+<p class="lights"><span style="background:var(--green)"></span>норма &nbsp; <span style="background:var(--yellow)"></span>внимание &nbsp;
+  <span style="background:var(--red)"></span>проблема &nbsp; <span style="background:#9aa3b2"></span>нет оценки (мало данных)</p>
+
+<h3>Применить совет</h3>
+<ul>
+  <li>скопировать строки CLI в конфигуратор Betaflight → вкладка CLI → Enter; или</li>
+  <li><b class="ui">На борт по USB…</b> — программа сохранит бэкап, запишет и проверит значения; есть кнопка <b class="ui">Откатить</b>.</li>
+</ul>
+<div class="box tip">После изменения, которое ослабляет фильтры или поднимает D, — короткий полёт 20–30 с и потрогай
+  моторы. Горячие — откат.</div>
+
+<h3>Автотюн</h3>
+<p>Вкладка <b class="ui">Автотюн</b>: отметь пропы, моторы и ощущения → <b class="ui">Разобрать полёт</b> →
+  <b class="ui">Сохранить полёт и записать на борт по USB</b>. Слетай и повтори с новым логом. По одному изменению
+  за полёт; «нравится» — ничего не трогает; стало хуже — откат.</p>
+
+<h2 class="page"><span class="n">4</span> Тестирование: цикл из 3–5 полётов</h2>
+<ol class="steps">
+  <li>Открой лог → <b class="ui">Сессии и сравнение</b> → <b class="ui">Сохранить как сессию</b>. Программа спросит, что это за борт.</li>
+  <li><b class="ui">Кампания</b> → <b class="ui">Начать кампанию</b> для этого борта (цель — например, «Убрать пропвош»).
+    Новые сессии борта попадают в неё сами.</li>
+  <li>Примени совет и слетай так же, как в прошлый раз: те же пропы и похожий заряд пакета.</li>
+  <li>Открой новый лог, сохрани как сессию. В кампании отметь, <b>какие моторы после полёта</b> и <b>как летает</b> —
+    это самое ценное.</li>
+  <li>Повтори 3–5 раз.</li>
+</ol>
+
+<h2><span class="n">5</span> Что прислать</h2>
+<table>
+  <tr><th style="width:38%">Что</th><th>Где взять</th></tr>
+  <tr><td><b>Экспорт кампании</b> (обязательно)</td><td><b class="ui">Кампания</b> → <b class="ui">Экспорт кампании</b> → один файл <code>.html</code>.
+    В нём все полёты серии: настройки, метрики, советы, что применил, твои отметки, точность прогнозов.</td></tr>
+  <tr><td><b>Папка случая</b> — если стало хуже или что-то сломалось</td><td><b class="ui">Сессии и сравнение</b> → кнопка <b class="ui">⚠</b> в строке полёта →
+    опиши симптомы → <b class="ui">Скачать папку случая (zip)</b>.</td></tr>
+  <tr><td><b>Скриншот</b> — ошибка или непонятный текст</td><td>Пара слов: на какой вкладке и что ожидал увидеть.</td></tr>
+</table>
+
+<div class="box mail">
+  Отправляй на почту
+  <div class="addr">svyatpercent@gmail.com</div>
+  Тема письма: <code>Blackbox Studio: борт</code>, например <code>Blackbox Studio: 5" 6S Mark4</code>.<br>
+  В письме коротко: рама, моторы и KV, пропы, число банок, версия Betaflight.
+</div>
+
+<h3>Что внутри файлов</h3>
+<ul>
+  <li>В экспорте кампании — настройки полётника и его ID, но не сами логи.</li>
+  <li>В папке случая могут быть сами логи (<code>before.bbl</code>, <code>after.bbl</code>). Если в них пишется GPS, там будут
+    координаты полёта. Не хочешь их отправлять — удали эти файлы из архива.</li>
+</ul>
+
+<h2 class="page"><span class="n">6</span> Если что-то не так</h2>
+<table>
+  <tr><td style="width:38%">Полётник не виден в списке портов</td><td>Нужен драйвер: в Betaflight Configurator — «Установить драйверы» или ImpulseRC Driver Fixer.
+    Закрой конфигуратор — он может занимать порт.</td></tr>
+  <tr><td>«Подключён аккумулятор»</td><td>Настройки пишутся только при питании от USB. Отключи аккумулятор и нажми ещё раз.</td></tr>
+  <tr><td>Советы по фильтрам не появляются</td><td>Смотри «Хватает ли данных в логе» на Сводке: обычно не хватает газа до 100 % или частоты записи.</td></tr>
+  <tr><td>«Мало движений стиками»</td><td>Нужен полёт с резкими движениями по каждой оси — список на Сводке.</td></tr>
+</table>
+<p class="muted" style="margin-top:8mm">Спасибо, что помогаешь! Летаем больше — крутим меньше.</p>
+
+</body>
+</html>

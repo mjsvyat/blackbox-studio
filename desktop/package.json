@@ -3,6 +3,7 @@
   "productName": "Blackbox Studio",
   "private": true,
   "version": "1.8.26",
+  "license": "MIT",
   "releaseName": "1.08.26",
   "description": "Blackbox Studio — разбор и настройка квадрокоптера по блэкбоксу Betaflight",
   "author": "mjsvyat",
