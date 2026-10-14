@@ -4,10 +4,10 @@
 
 import cfg from '../config/analysis.json';
 import { activeClass, classInfo } from '../config/classes';
-import { AdvisorResult, BoardKnowledge, advisorInputFrom, runAdvisor } from '../advisor/advisor';
+import { AdvisorResult, BoardKnowledge, LpfOffCandidate, advisorInputFrom, runAdvisor } from '../advisor/advisor';
 import { col } from '../decoder/decoder';
 import { FilterBaseline, FilterEval, buildBaseline, evaluate } from '../filters/evaluate';
-import { FilterContext, FilterParams, contextFromHeader, paramsFromHeader } from '../filters/settings';
+import { FilterContext, FilterParams, applySimplified, contextFromHeader, paramsFromHeader } from '../filters/settings';
 import { PidResult, analyzePid } from '../pid/analyze';
 import { PidGains, gainsFromHeader, simplifiedFromHeader } from '../pid/gains';
 import { AxisForecast, Sysid, forecastAxis, gainsRatio, identify } from '../sysid/predict';
@@ -105,6 +105,14 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
   inp.flight = { thrTop: throttleTop(c, a.fm.mask), gyroDelayMs: f ? f.base.current.delay.gyro['100'] ?? null : null, bench: isBenchTest(c) };
   // запасы устойчивости — только те, которым можно верить (когерентность у среза)
   inp.stability = (a.chirp?.axes ?? []).filter((x) => x.marginsOk && x.margins?.crossHz).map((x) => ({ axis: x.axis, pmDeg: x.margins!.pmDeg, gmDb: x.margins!.gmDb, crossHz: x.margins!.crossHz!, source: x.source }));
+  // «что если выключить гиро-лоупассы» — только когда правило вообще может сработать (RPM, PID = гиро)
+  if (f && inp.setup?.bidir && (f.params.rpm_filter_harmonics ?? 0) > 0 && inp.setup.pidDenom === 1 && f.base.validation.status === 'green') {
+    try {
+      inp.whatIf = { gyroLpfOff: gyroLpfOffCandidates(a) };
+    } catch (e) {
+      onError('lpf off', e);
+    }
+  }
   const res = runAdvisor(inp, override);
   res.cls = classInfo(activeClass());
   // прогноз PID по модели оси для советов, меняющих PID или фильтры
@@ -132,6 +140,45 @@ export function adviseLog(a: Analysis, onError: (what: string, e: unknown) => vo
     }
   }
   return res;
+}
+
+/**
+ * Варианты «гиро-лоупассы выключены» с эффектом по точной модели: сначала оба выключены,
+ * потом LPF1 выключен, а LPF2 не ниже advisor.lpfOffKeepLpf2Hz (как советуют эксперты чата).
+ */
+export function gyroLpfOffCandidates(a: Analysis): LpfOffCandidate[] {
+  const f = a.filters;
+  if (!f) return [];
+  const p = f.params;
+  const eff = p.simplified_gyro_filter ? applySimplified(p) : p;
+  const lpf1 = (eff.gyro_lpf1_static_hz ?? 0) > 0 || (eff.gyro_lpf1_dyn_min_hz ?? 0) > 0;
+  const lpf2 = eff.gyro_lpf2_static_hz ?? 0;
+  if (!lpf1 && !lpf2) return [];
+  const off: Record<string, number> = { gyro_lpf1_static_hz: 0, gyro_lpf1_dyn_min_hz: 0, gyro_lpf1_dyn_max_hz: 0 };
+  if (p.simplified_gyro_filter) off.simplified_gyro_filter = 0;
+  const variants: Record<string, number>[] = [{ ...off, gyro_lpf2_static_hz: 0 }];
+  const keep = cfg.advisor.lpfOffKeepLpf2Hz;
+  if (lpf1 && lpf2 > 0) variants.push({ ...off, gyro_lpf2_static_hz: Math.max(lpf2, keep) });
+  else if (lpf1 && !lpf2) variants.push({ ...off, gyro_lpf2_static_hz: keep });
+  const cur = f.base.current;
+  const mx = (v: number[]): number => Math.max(...v.filter((x) => Number.isFinite(x)));
+  const out: LpfOffCandidate[] = [];
+  for (const v of variants) {
+    const changes: Record<string, number> = {};
+    const from: Record<string, number> = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (!(k in p)) continue;
+      const now = k === 'simplified_gyro_filter' ? p[k] : eff[k] ?? 0;
+      if (now === x) continue;
+      changes[k] = x;
+      from[k] = now;
+    }
+    if (!Object.keys(changes).length) continue;
+    const { ev } = evaluate(a.c, { ...p, ...changes }, f.fctx, f.base.segments, f.base.n, cur.op);
+    const d0 = mx(cur.rmsDterm), d1 = mx(ev.rmsDterm);
+    out.push({ from, changes, gyro: mx(ev.rmsGyro), dtermRatio: d0 > 0 ? d1 / d0 : 1, delay100: [cur.delay.gyro['100'], ev.delay.gyro['100']] });
+  }
+  return out;
 }
 
 /** верх газа в маске полёта (99-й перцентиль, %, без одиночных выбросов); null — полёта нет */
