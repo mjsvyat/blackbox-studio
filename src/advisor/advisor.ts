@@ -75,7 +75,9 @@ export interface AdvisorInput {
   /** знание о борте (профиль и история, этап 6) */
   board?: BoardKnowledge;
   /** настройка борта из заголовка лога и замеры, не связанные с полётом */
-  setup?: { dynIdle: number | null; bidir: boolean | null; pidDenom: number; idleRpm: number | null };
+  setup?: { dynIdle: number | null; bidir: boolean | null; pidDenom: number; idleRpm: number | null; rxHz?: number | null };
+  /** «что если» по точной модели фильтров (считает конвейер): гиро-лоупассы выключены */
+  whatIf?: { gyroLpfOff?: LpfOffCandidate[] };
   /** верх газа в полёте (99-й перцентиль, %) и задержка фильтров гиро на 100 Гц (мс) */
   flight?: { thrTop: number | null; gyroDelayMs: number | null; bench?: boolean };
   /** запасы устойчивости, которым можно верить (C: chirp или когерентный полёт) */
@@ -83,6 +85,18 @@ export interface AdvisorInput {
 }
 
 export interface Range { mid: number; lo: number; hi: number }
+
+/** вариант «выключить гиро-лоупассы» (рецепт экспертов чата при RPM-фильтрах) и его эффект по модели */
+export interface LpfOffCandidate {
+  from: Record<string, number>;
+  changes: Record<string, number>;
+  /** СКЗ гиро после фильтров (как noise.filt), макс. по осям */
+  gyro: number;
+  /** во сколько раз изменится D-term (модель после / модель сейчас) */
+  dtermRatio: number;
+  /** задержка гиро на 100 Гц: сейчас, после, мс */
+  delay100: [number, number];
+}
 
 export interface BoardKnowledge {
   /** класс борта (E2.2): пороги — с переопределениями класса (config/classes.ts) */
@@ -239,7 +253,35 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
     }
     const fullThr = !isNum(inp.flight?.thrTop) || inp.flight!.thrTop! >= A.fullThrottlePct;
     const clean = fullThr && fl.status === 'green' && isNum(fMax) && fMax < N.filtRms.green && (!isNum(unfMax) || unfMax < N.unfiltRms.green) && isNum(dMax) && dMax < A.dtermRms.green;
-    if (clean && (p.simplified_gyro_filter_multiplier ?? 100) < 200) {
+    // рецепт экспертов чата Blackbox 2.0 (десятки скриншотов «поставь так»): при RPM-фильтрах,
+    // PID-цикле = частоте гиро и без ВЧ-шума гиро-лоупассы не нужны — выключить, задержка меньше.
+    // Предлагаем, только если точная модель на этом логе говорит, что шум останется зелёным
+    const su0 = inp.setup;
+    const rpmOn = !!su0?.bidir && (p.rpm_filter_harmonics ?? 0) > 0;
+    const baseOk = fullThr && fl.status === 'green' && !mechNoise && rpmOn && su0!.pidDenom === 1;
+    let lpfOff = false;
+    const lo = inp.whatIf?.gyroLpfOff ?? [];
+    if (baseOk && lo.length) {
+      const ok = lo.find((x) => x.gyro < N.filtRms.green && (!isNum(dMax) || dMax * x.dtermRatio < A.dtermRms.green) && x.delay100[0] - x.delay100[1] >= A.lpfOffMinGainMs);
+      if (ok) {
+        lpfOff = true;
+        const lpf2 = ok.changes.gyro_lpf2_static_hz ?? 0;
+        add(c, { id: 'R-FLT-GYRO-LPF-OFF-01', version: 1, kind: 'tune', severity: 'info', inputs: { ms0: +ok.delay100[0].toFixed(2), ms1: +ok.delay100[1].toFixed(2), lpf2, filt: +ok.gyro.toFixed(2), green: N.filtRms.green }, tab: 'filters', priority: 39, safety: true, from: { ...ok.from }, changes: { ...ok.changes } });
+      }
+    }
+    // динамических нотчей больше, чем резонансов рамы: при RPM-фильтрах лишние только добавляют
+    // задержку («динамические ночи по числу гармоник рамы», обычно 1–2)
+    if (baseOk && (p.dyn_notch_count ?? 0) > 1) {
+      const per = [0, 1, 2].map((ax) => {
+        const hz = nz.peaks.filter((x) => x.axis === ax && x.kind === 'frame' && x.prominenceDb >= A.framePeakMinDb).map((x) => x.hz).sort((a, b) => a - b);
+        let k = 0, last = -1e9;
+        for (const h of hz) if (h - last > A.notchPeakMergeHz) { k++; last = h; }
+        return k;
+      });
+      const need = Math.max(1, ...per);
+      if (need < p.dyn_notch_count!) add(c, { id: 'R-DYN-NOTCH-COUNT-01', version: 1, kind: 'tune', severity: 'info', inputs: { count: p.dyn_notch_count!, need, frames: Math.max(...per) }, tab: 'noise', priority: 42, safety: true, from: { dyn_notch_count: p.dyn_notch_count! }, changes: { dyn_notch_count: need } });
+    }
+    if (clean && !lpfOff && (p.simplified_gyro_filter_multiplier ?? 100) < 200) {
       const ch = filterChange(p, 'gyro', 1);
       add(c, { id: 'R-FLT-GYRO-RAISE-01', version: 1, kind: 'tune', severity: 'info', inputs: { filt: +fMax.toFixed(2), green: N.filtRms.green, dterm: +dMax.toFixed(1) }, tab: 'filters', priority: 40, safety: true, ...ch });
     }
@@ -304,6 +346,8 @@ export function runAdvisor(inp: AdvisorInput, override: Partial<AdvisorCfg> = {}
   // но ниже оборотов статического ХХ (иначе в конфигураторе «Dynamic Idle должен быть меньше Dshot Idle»)
   const su = inp.setup;
   // без bidirectional DShot нет RPM-фильтров — самый частый совет экспертов чата
+  // редкие пакеты линка: уставка ступеньками, FF дёргает моторы (скриншоты админа чата «RX rate 50 Hz»)
+  if (su && isNum(su.rxHz) && su.rxHz > 0 && su.rxHz < A.minRxHz) add(c, { id: 'R-LINK-RATE-01', version: 1, kind: 'info', severity: 'yellow', inputs: { hz: su.rxHz, need: A.minRxHz }, tab: 'pid', priority: 33 });
   if (su && su.bidir === false) add(c, { id: 'R-SETUP-BIDIR-01', version: 1, kind: 'info', severity: 'yellow', inputs: {}, tab: 'motors', priority: 31 });
   // 1–2S: дин. ХХ в чате советуют не включать (рискованно для регуля) — поднимают статический ХХ
   if (su && su.bidir && su.dynIdle === 0 && !(inp.power.cells > 0 && inp.power.cells <= A.dynIdleMinCells - 1)) {
@@ -462,7 +506,10 @@ export function setupFromHeader(H: Record<string, string>, idleRpm: number | nul
     return Number.isFinite(x) ? x : null;
   };
   const bd = num('dshot_bidir');
-  return { dynIdle: num('dyn_idle_min_rpm'), bidir: bd === null ? null : bd === 1, pidDenom: num('pid_process_denom') ?? 1, idleRpm };
+  // частота пакетов линка: 4.5+ — rc_smoothing_rx_smoothed (Гц), до 4.4 — rc_smoothing_rx_average (мкс между кадрами); 0 — неизвестно
+  const rs = num('rc_smoothing_rx_smoothed'), ra = num('rc_smoothing_rx_average');
+  const rxHz = rs ? rs : ra ? Math.round(1e6 / ra) : null;
+  return { dynIdle: num('dyn_idle_min_rpm'), bidir: bd === null ? null : bd === 1, pidDenom: num('pid_process_denom') ?? 1, idleRpm, rxHz };
 }
 
 /** упоры гироскопа не дальше clipNearImpactS от удара — это краш, а не срыв в воздухе */
