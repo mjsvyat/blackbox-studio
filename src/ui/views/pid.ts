@@ -27,7 +27,7 @@ export function pidView(track: (d: () => void) => void): HTMLElement {
 
   if (anyStep?.step) {
     const t = Float32Array.from(anyStep.step.t, (v) => v * 1000);
-    const lines = P.axes.filter((a) => a.step).map((a) => ({ label: `${T.pid.lAxis(AXIS_NAMES[a.axis])}${a.enough ? '' : ' (?)'}`, color: colors[a.axis], data: a.step!.mean, width: a.enough ? 2 : 1.2, dash: a.enough ? undefined : [5, 4] }));
+    const lines = P.axes.filter((a) => a.step).map((a) => ({ label: `${T.pid.lAxis(AXIS_NAMES[a.axis])}${a.enough ? '' : ` — ${T.pid.lLow}`}`, color: colors[a.axis], data: a.step!.mean, width: a.enough ? 2 : 1.2, dash: a.enough ? undefined : [5, 4] }));
     const bands = P.axes.filter((a) => a.step && a.enough).map((a) => ({
       lower: Float32Array.from(a.step!.mean, (m, i) => m - (a.step!.std[i] || 0)),
       upper: Float32Array.from(a.step!.mean, (m, i) => m + (a.step!.std[i] || 0)),
@@ -84,7 +84,7 @@ export function pidView(track: (d: () => void) => void): HTMLElement {
   return out;
 }
 
-// ---------- этап 7: модель оси и песочница PID ----------
+// ---------- этап 7: модель оси и примерка PID ----------
 
 const SIM_KEYS: (keyof SimplifiedPids)[] = ['master', 'pi', 'i', 'd', 'dExtra', 'ff', 'pitchD', 'pitchPi'];
 let useFilterSandbox = false;
@@ -111,7 +111,7 @@ export function forecastSection(track: (d: () => void) => void): HTMLElement {
     return box;
   }
 
-  // ---------- песочница ----------
+  // ---------- примерка ----------
   const sp = P.simplified;
   const curCli = { ...gainsToCli(P.gains), ...(sp ? simplifiedToCli(sp.s, sp.dExtraName) : {}) };
   const changes = (): Record<string, number> => state.pidSandbox ?? {};
@@ -223,7 +223,7 @@ function resultsInto(box: HTMLElement, track: (d: () => void) => void): void {
           h('tr', null, h('td', null, ''), h('td', null, T.pid.mSettle), h('td', null, fmt(m?.settle, 2)), h('td', null, fmt(f.nowMetrics.settle, 2)), h('td', { style: 'font-style:italic' }, rng(f.settle, 2))),
         ];
       })))));
-  // CLI песочницы
+  // CLI примерки
   const ch = changes();
   const pidOnly: Record<string, number> = {};
   for (const [k, v] of Object.entries(ch)) if (!(state.filters && k in state.filters.params)) pidOnly[k] = v;

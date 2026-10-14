@@ -22,11 +22,11 @@ export function convertView(): HTMLElement {
   const box = h('div', { id: 'conv' },
     h('h2', null, C.title, helpBtn('convert')),
     h('p', { class: 'muted' }, C.intro),
-    h('div', { class: 'row', style: 'margin-bottom:10px' }, C.from, sel(from, (x) => { from = x; }), '→', C.to, sel(to, (x) => { to = x; }),
+    h('div', { class: 'row', style: 'margin-bottom:10px' }, C.from, sel(from, (x) => { from = x; }), C.to, sel(to, (x) => { to = x; }),
       ORD(from) > ORD(to) ? h('span', { class: 'warn-text small' }, C.backwards) : null),
     h('div', { class: 'two' },
       h('div', null, h('div', { class: 'small muted' }, C.inLabel), area),
-      h('div', null, h('div', { class: 'row small muted' }, C.outLabel, res ? copy : null), h('pre', { class: 'cli conv-out' }, outText || C.empty))),
+      h('div', null, h('div', { class: 'row small muted' }, C.outLabel, res ? copy : null), h('pre', { class: outText ? 'cli conv-out' : 'cli conv-out muted' }, outText || C.empty))),
     res && res.notes.length
       ? h('div', { class: 'panel', style: 'margin-top:12px' }, h('b', null, C.notes(res.notes.length)),
           h('ul', { class: 'small' }, res.notes.map((n) => h('li', { class: n.kind === 'removed' || n.kind === 'changed' ? 'warn-text' : '' }, C.kind[n.kind], ': ', n.text))))

@@ -39,7 +39,7 @@ export function fileView(rerender: () => void): HTMLElement {
         h('td', null, l.durationS !== null ? fmtTime(l.durationS) : '—'),
         h('td', null, l.firmware.version, h('div', { class: 'muted small' }, l.board)),
         h('td', null, `${l.logHz.toFixed(0)} Гц`),
-        h('td', null, fmtBytes(l.size), h('div', { class: 'muted small' }, `@ ${l.start.toLocaleString('ru')}`)),
+        h('td', null, fmtBytes(l.size), h('div', { class: 'muted small' }, T.file.offset(l.start.toLocaleString('ru')))),
         h('td', null, notes),
         h('td', null, canOpen ? h('button', { class: isOpen ? 'btn small primary' : 'btn small' }, T.file.open) : null));
     });

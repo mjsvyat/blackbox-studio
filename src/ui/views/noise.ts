@@ -57,12 +57,12 @@ export function noiseView(track: (d: () => void) => void): HTMLElement {
 
   const peaks = ax.peaks.length
     ? h('table', { class: 'grid' },
-        h('thead', null, h('tr', null, h('th', null, T.noise.peakHz), h('th', null, T.noise.peakProm), h('th', null, T.noise.peakKind), h('th', null, ''))),
+        h('thead', null, h('tr', null, h('th', null, T.noise.peakHz), h('th', null, T.noise.peakProm), h('th', null, T.noise.peakKind), h('th', null, T.noise.peakBand))),
         h('tbody', null, ax.peaks.map((p) => h('tr', null,
           h('td', null, `${p.hz.toFixed(0)} Гц`),
           h('td', null, `+${p.prominenceDb.toFixed(0)} дБ`),
           h('td', null, T.noise.kind[p.kind] + (p.kind === 'motor' && p.harmonic ? ` ×${p.harmonic}` : '')),
-          h('td', { class: 'muted small' }, `полоса ${p.bandLo.toFixed(0)}–${p.bandHi.toFixed(0)} Гц`)))))
+          h('td', { class: 'muted small' }, `${p.bandLo.toFixed(0)}–${p.bandHi.toFixed(0)} Гц`)))))
     : h('div', { class: 'muted' }, T.noise.noPeaks);
 
   const metrics = h('table', { class: 'grid' },
@@ -75,10 +75,7 @@ export function noiseView(track: (d: () => void) => void): HTMLElement {
       h('td', null, fmt(x.rmsDterm, 1)), h('td', null, fmt(x.rmsMid, 1, ' °/с'))))));
 
   const notes = h('div', { class: 'muted small' },
-    T.noise.nyquist(N.nyquist), helpBtn('nyquist'), ' ',
-    N.motorHzMedian ? T.noise.motorHz(N.motorHzMedian) : '',
-    N.bursts.length ? ` · ${T.phrase.bursts(N.bursts.length)}` : '',
-    ` · сегментов БПФ: ${N.segments}`);
+    [N.motorHzMedian ? T.noise.motorHz(N.motorHzMedian) : '', N.bursts.length ? T.phrase.bursts(N.bursts.length) : ''].filter(Boolean).join(' · '));
 
   return h('div', null,
     h('h2', null, T.noise.title, helpBtn('card-noise')),

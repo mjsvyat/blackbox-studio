@@ -74,9 +74,9 @@ export function flightView(track: (d: () => void) => void): HTMLElement {
 
   // события: записанные в лог + найденные аномалии
   const rows: { t: number; what: string; kind: string }[] = [
-    ...info.events.filter((e) => e.name !== 'LOG_END').map((e) => ({ t: e.t, what: `${e.name}${e.detail ? ': ' + e.detail : ''}`, kind: 'event' })),
+    ...info.events.filter((e) => e.name !== 'LOG_END').map((e) => ({ t: e.t, what: eventText(e.name, e.detail), kind: 'event' })),
     ...an.anomalies.map((x) => ({ t: x.t0, what: x.text + (x.t1 > x.t0 + 0.05 ? ` (${fmt(x.t1 - x.t0, 2)} с)` : ''), kind: x.kind })),
-    ...info.holes.map(([a, b]) => ({ t: a ?? 0, what: `Битые данные ${fmt(a ?? 0, 2)}–${b === null ? 'конец' : fmt(b, 2)} с`, kind: 'hole' })),
+    ...info.holes.map(([a, b]) => ({ t: a ?? 0, what: T.flight.holes(fmt(a ?? 0, 2), b === null ? null : fmt(b, 2)), kind: 'hole' })),
   ].sort((x, y) => x.t - y.t);
 
   const events = h('div', { class: 'panel' },
@@ -86,7 +86,7 @@ export function flightView(track: (d: () => void) => void): HTMLElement {
           h('thead', null, h('tr', null, h('th', null, T.flight.evTime), h('th', null, T.flight.evWhat))),
           h('tbody', null, rows.map((r) => h('tr', { class: 'click', onclick: () => { zoomTo(r.t); seekLog(r.t); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
             h('td', null, fmtTime(r.t)),
-            h('td', null, h('span', { class: `badge ${['GYRO_CLIP', 'MOTOR_DESYNC', 'FAILSAFE', 'hole'].includes(r.kind) ? 'red' : r.kind === 'event' ? '' : 'yellow'}` }, r.kind === 'event' ? 'лог' : r.kind === 'hole' ? 'данные' : 'аномалия'), r.what)))))
+            h('td', null, h('span', { class: `badge ${['GYRO_CLIP', 'MOTOR_DESYNC', 'FAILSAFE', 'hole'].includes(r.kind) ? 'red' : r.kind === 'event' ? '' : 'yellow'}` }, r.kind === 'event' || r.kind === 'hole' ? T.flight.badge[r.kind] : T.flight.anomaly[r.kind] ?? T.flight.badge.anomaly), ' ', r.what)))))
       : h('div', { class: 'muted' }, T.flight.noEvents));
 
   return h('div', null,
@@ -153,8 +153,23 @@ export function motorsView(track: (d: () => void) => void): HTMLElement {
   const evs = an.anomalies.filter((x) => ['MOTOR_DESYNC', 'ALL_MOTORS_SAT', 'MOTOR_SAT', 'VBAT_DIP', 'GYRO_CLIP'].includes(x.kind));
   const evBox = h('div', { class: 'panel' }, h('h3', { style: 'margin-top:0' }, T.mp.eventsTitle),
     evs.length ? h('table', { class: 'grid small' }, h('tbody', null, evs.map((x) => h('tr', { class: 'click', onclick: () => { zoomTo(x.t0); seekLog(x.t0); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
-      h('td', null, fmtTime(x.t0)), h('td', null, h('span', { class: `badge ${x.kind === 'VBAT_DIP' ? 'yellow' : 'red'}` }, x.kind), ' ', x.text)))))
+      h('td', null, fmtTime(x.t0)), h('td', null, h('span', { class: `badge ${x.kind === 'VBAT_DIP' ? 'yellow' : 'red'}` }, T.flight.anomaly[x.kind] ?? x.kind), ' ', x.text)))))
       : h('div', { class: 'muted' }, T.mp.noEvents));
   return h('div', null, h('h2', null, T.tabs.motors), cardsBox, h('div', { style: 'height:12px' }), charts[0].el, rangeControls(), charts.slice(1).map((c) => c.el),
     h('div', { class: 'two' }, ...extra.slice(0, 2)), h('div', { class: 'two' }, ...extra.slice(2)), evBox);
+}
+
+/** событие лога по-русски: «FLIGHTMODE: +ARM −ANGLE» → «Режимы: арм вкл., Angle выкл.» */
+function eventText(name: string, detail: string): string {
+  const title = T.flight.evName[name] ?? name;
+  if (name === 'FLIGHTMODE' && detail) {
+    const parts = detail.split(/\s+/).filter(Boolean).map((p) => {
+      const on = p.startsWith('+');
+      const m = p.replace(/^[+−-]/, '');
+      if (m === 'ARM') return on ? 'арм' : 'дизарм';
+      return `${T.flight.modeName[m] ?? m} ${on ? T.flight.modeOn : T.flight.modeOff}`;
+    });
+    return parts.length === 1 && /^(арм|дизарм)$/.test(parts[0]) ? parts[0][0].toUpperCase() + parts[0].slice(1) : `${title}: ${parts.join(', ')}`;
+  }
+  return detail ? `${title}: ${detail}` : title;
 }

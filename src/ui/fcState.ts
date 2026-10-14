@@ -20,7 +20,7 @@ export interface FcUi {
   retries: number;
   /** B4: настройки, прочитанные с борта (без dump — он большой) */
   settings: Omit<BoardSettings, 'dump'> | null;
-  /** B5: что предложено применить (из советчика или песочницы): CLI-значения и откуда */
+  /** B5: что предложено применить (из советчика или примерки): CLI-значения и откуда */
   pending: { to: Record<string, number>; source: string } | null;
   /** построчный ход применения */
   applyRows: { line: string; ok: boolean; error?: string }[];

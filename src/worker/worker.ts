@@ -239,7 +239,7 @@ function computeRates(c: LogContext): { payload: RatesPayload | null; why?: stri
   const profile = ratesFromHeader(c.log.header);
   if (!profile) return { payload: null, why: 'no-header' };
   if (!ratesWork) ratesWork = buildRatesBase(c, lastMask!, profile);
-  // «новый» setpoint до первого пересчёта песочницы = записанный
+  // «новый» setpoint до первого пересчёта примерки = записанный
   for (let a = 0; a < 3; a++) if (!series.has(`spN${a}`) && series.has(`sp${a}`)) series.set(`spN${a}`, series.get(`sp${a}`)!);
   return { payload: { ...ratesWork.base, fwCode: c.fw.code } };
 }

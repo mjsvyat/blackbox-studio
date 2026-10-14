@@ -163,7 +163,7 @@ function settingsPanel(): HTMLElement {
   return box;
 }
 
-/** B5: применить CLI-блок (из советчика / песочницы) с diff перед отправкой; откат */
+/** B5: применить CLI-блок (из советчика / примерки) с diff перед отправкой; откат */
 function applyPanel(armed: boolean): HTMLElement {
   const fc = state.fc;
   const info = fc.info!;

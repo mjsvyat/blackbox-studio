@@ -6,7 +6,7 @@ import { nums } from '../decoder/header';
 /** плоский набор значений под именами CLI */
 export type FilterParams = Record<string, number>;
 
-/** доп. сведения, нужные модели, но не меняемые в песочнице */
+/** доп. сведения, нужные модели, но не меняемые в примерке */
 export interface FilterContext {
   gyroLooptimeUs: number;
   pidLooptimeUs: number;

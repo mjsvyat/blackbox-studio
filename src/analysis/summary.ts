@@ -129,9 +129,8 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
       extra.push(v.status === 'green' ? T.phrase.filtersModelOk(worstMatch) : T.phrase.filtersModelBad(worstMatch, v.reason));
       metrics.push(
         { label: 'Задержка гиро на 50 / 100 / 150 Гц', value: `${fx(d.gyro['50'], 2)} / ${fx(d.gyro['100'], 2)} / ${fx(d.gyro['150'], 2)} мс`, help: 'filter-delay' },
-        { label: 'Задержка D-term на 100 Гц', value: fx(d.dterm['100'], 2, ' мс'), help: 'filter-delay' },
-        // PIDtoolbox пишет «Gyro X мс | Dterm Y мс» — Y без гиро-цепочки; ориентир чата — ~2 мс каждая для 5"
-        { label: 'Как в PIDtoolbox: гиро | только D-фильтры', value: `${fx(d.gyro['100'], 2)} | ${fx(d.dterm['100'] - d.gyro['100'], 2)} мс`, help: 'filter-delay' },
+        // PIDtoolbox пишет «Dterm Y мс» без гиро-цепочки — показываем обе цифры; ориентир чата ~2 мс для 5"
+        { label: 'Задержка D-term на 100 Гц (из них D-фильтры)', value: `${fx(d.dterm['100'], 2)} (${fx(d.dterm['100'] - d.gyro['100'], 2)}) мс`, help: 'filter-delay' },
         { label: 'Подавление шума >80 Гц', value: fx(redAvg, 0, ' дБ'), help: 'metric-reduction' },
         { label: 'Модель совпадает с бортом', value: v.match.map((x) => fx(x, 0)).join(' / ') + ' %', status: v.status, help: 'filter-model' },
       );
@@ -168,7 +167,7 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
         const m = a.metrics;
         metrics.push({
           label: T.phrase.pidMetric(AXIS_NAMES[a.axis]),
-          value: m ? `${fx(m.overshootPct, 0)} % · ${fx(m.delayMs, 0)} мс · ${fx(m.settle, 2)}${a.enough ? '' : ' (?)'}` : '—',
+          value: m ? `${fx(m.overshootPct, 0)} % · ${fx(m.delayMs, 0)} мс · ${fx(m.settle, 2)}` : '—',
           status: m && a.enough && a.axis < 2 ? worst(lowIsGood(m.overshootPct, Pc.overshootPct), highIsGood(m.settle, Pc.settle)) : 'grey',
           help: 'pid-step',
         });
@@ -302,8 +301,8 @@ export function buildSummary(ctx: LogContext, fm: FlightMask, nz: NoiseResult, h
       id: 'integrity', title: T.card.integrity, status, phrase: parts.shift() ?? T.phrase.integrityOk, extra: parts,
       metrics: [
         { label: 'Потеряно данных', value: `${lostPct.toFixed(2)} %`, status: sLost, help: 'metric-lost' },
-        { label: 'Кадров I / P / битых', value: `${log.frames.I} / ${log.frames.P} / ${log.frames.bad}` },
-        { label: 'Частота логирования', value: `${ctx.timing.logHz.toFixed(0)} Гц (Найквист ${ctx.timing.nyquistHz.toFixed(0)} Гц)`, help: 'nyquist' },
+        { label: 'Кадры I / P / битые', value: `${log.frames.I} / ${log.frames.P} / ${log.frames.bad}` },
+        { label: 'Частота записи', value: `${ctx.timing.logHz.toFixed(0)} Гц`, help: 'nyquist' },
         { label: 'gyroUnfilt в логе', value: ctx.hasGyroUnfilt ? (ctx.unfiltFromDebug ? 'есть (debug GYRO_SCALED)' : 'есть') : 'нет', status: ctx.hasGyroUnfilt ? 'green' : 'yellow', help: 'gyro-unfilt' },
         { label: 'Конец лога', value: log.end === 'LOG_END' ? 'штатный' : 'обрезан' },
       ],

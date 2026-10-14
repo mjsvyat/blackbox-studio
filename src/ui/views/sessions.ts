@@ -276,8 +276,8 @@ function compareBlock(Ar: SessionRecord, Br: SessionRecord, track: (d: () => voi
     const ch = lineChart({
       title: T.ses.stepTitle(AXIS_NAMES[ax]), help: 'pid-step', x: sa.t.slice(0, n).map((v) => v * 1000), height: 240, yRange: [0, 1.6],
       lines: [
-        { label: `${T.ses.was}${sa.enough ? '' : ' (?)'}`, color: '--fg2', data: sa.mean.slice(0, n), width: 1.2 },
-        { label: `${T.ses.now}${sb.enough ? '' : ' (?)'}`, color: '--s1', data: sb.mean.slice(0, n), width: 1.8 },
+        { label: `${T.ses.was}${sa.enough ? '' : ` — ${T.pid.lLow}`}`, color: '--fg2', data: sa.mean.slice(0, n), width: 1.2 },
+        { label: `${T.ses.now}${sb.enough ? '' : ` — ${T.pid.lLow}`}`, color: '--s1', data: sb.mean.slice(0, n), width: 1.8 },
       ],
       hline: { y: 1, label: '1.0', color: '--fg3' },
       note: T.ses.stepPredLater,

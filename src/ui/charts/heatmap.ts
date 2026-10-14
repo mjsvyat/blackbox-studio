@@ -48,7 +48,7 @@ export function heatmap(hs: HeatmapSpec): { el: HTMLElement; destroy: () => void
   const S = hs.spec;
   const colsShown = Math.min(S.cols, Math.floor(hs.maxHz / S.df) + 1);
   const firstCol = Math.max(1, Math.ceil(10 / S.df));
-  const ML = 46, MB = 26, MT = 6, MR = 8;
+  const ML = 46, MB = 34, MT = 6, MR = 8;
 
   // диапазон цвета по перцентилям
   const vals: number[] = [];

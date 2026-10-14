@@ -82,7 +82,7 @@ function renderTopbar(): void {
       h('button', { class: 'menu-item', onclick: () => { (more as HTMLDetailsElement).open = false; openGlossary(); } }, T.help.glossary),
       h('button', { class: 'menu-item', onclick: toggleTheme }, `${T.nav.theme}: ${document.documentElement.dataset.theme === 'dark' ? T.themeLight : T.themeDark}`)));
   topbar.append(
-    h('div', { class: 'brand' }, h('span', { class: 'logo' }), T.appTitle, h('span', { class: 'app-ver', title: T.versionHint }, APP_VERSION)),
+    h('div', { class: 'brand' }, h('span', { class: 'logo' }), h('span', { class: 'brand-name' }, T.appTitle), h('span', { class: 'app-ver', title: T.versionHint }, APP_VERSION)),
     h('div', { class: 'file-box' },
       h('button', { class: 'btn primary', onclick: () => fileInput.click() }, T.openFile),
       state.fileName ? h('span', { class: 'file-name', title: state.fileName }, state.fileName) : '',

@@ -108,7 +108,14 @@ export function lineChart(spec: LineSpec): { el: HTMLElement; destroy: () => voi
             ctx.strokeStyle = color(spec.hline.color); ctx.fillStyle = color(spec.hline.color);
             ctx.setLineDash([2 * dpr, 4 * dpr]); ctx.lineWidth = dpr;
             ctx.beginPath(); ctx.moveTo(pl.bbox.left, py); ctx.lineTo(pl.bbox.left + pl.bbox.width, py); ctx.stroke();
-            ctx.fillText(spec.hline.label, pl.bbox.left + 6 * dpr, py - 4 * dpr);
+            // подпись справа на подложке — иначе её перекрывают кривые
+            ctx.setLineDash([]);
+            const tw = ctx.measureText(spec.hline.label).width;
+            const tx = pl.bbox.left + pl.bbox.width - tw - 8 * dpr, ty = py - 5 * dpr;
+            ctx.fillStyle = color('--bg2');
+            ctx.fillRect(tx - 3 * dpr, ty - 11 * dpr, tw + 6 * dpr, 14 * dpr);
+            ctx.fillStyle = color(spec.hline.color);
+            ctx.fillText(spec.hline.label, tx, ty);
           }
           ctx.restore();
         }],
