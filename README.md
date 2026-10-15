@@ -15,13 +15,16 @@
   <a href="docs/Blackbox-Studio-instrukciya.pdf"><b>📄 Инструкция (PDF)</b></a>
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md">Что нового</a>
+  &nbsp;·&nbsp;
+  <a href="https://t.me/mjsvyat_fpv"><b>✈ Telegram-канал</b></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/mjsvyat/blackbox-studio/actions/workflows/ci.yml"><img src="https://github.com/mjsvyat/blackbox-studio/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/mjsvyat/blackbox-studio/releases/latest"><img src="https://img.shields.io/github/v/release/mjsvyat/blackbox-studio?label=версия" alt="Версия"></a>
+  <a href="https://github.com/mjsvyat/blackbox-studio/releases/latest"><img src="https://img.shields.io/github/v/release/mjsvyat/blackbox-studio?label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F" alt="Версия"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4" alt="Windows 10/11">
   <img src="https://img.shields.io/badge/Betaflight-4.3%20…%202026.6-f5a623" alt="Betaflight 4.3 … 2026.6">
+  <a href="https://t.me/mjsvyat_fpv"><img src="https://img.shields.io/badge/Telegram-mjsvyat__fpv-26A5E4?logo=telegram&logoColor=white" alt="Telegram"></a>
 </p>
 
 ![Сводка по логу](docs/img/summary.png)
@@ -80,7 +83,8 @@
 Нужны реальные полёты: тестируй, а в конце серии пришли **экспорт кампании** (вкладка
 «Кампания» → «Экспорт кампании») на **mjsvyat@gmail.com**. По этим файлам видно, какие
 советы помогают, а какие нет, — так утилита становится точнее. Что и как присылать — в
-[инструкции](docs/Blackbox-Studio-instrukciya.pdf); ошибки и идеи — в [Issues](https://github.com/mjsvyat/blackbox-studio/issues).
+[инструкции](docs/Blackbox-Studio-instrukciya.pdf); ошибки и идеи — в [Issues](https://github.com/mjsvyat/blackbox-studio/issues), новости — в
+[Telegram-канале](https://t.me/mjsvyat_fpv).
 
 ## Прошивки
 
@@ -94,8 +98,10 @@ Betaflight **4.3 … 2026.6** (проверено на 4.5.2 и 2026.6.1). Дл�
 
 ## Подпись кода и приватность
 
-Exe подписываются через [SignPath Foundation](https://signpath.org) — бесплатную подпись для
-open source; пока проект на рассмотрении, релизы выходят без подписи. Подпись делается в GitHub
+Пока exe без цифровой подписи. Бесплатную подпись для open source даёт [SignPath Foundation](https://signpath.org),
+но только проектам, которые уже заметны в сообществе (звёзды, форки, обсуждения). Первую заявку
+отклонили как раз поэтому — проект новый. Поставь ⭐ репозиторию и расскажи о нём: когда проект
+наберёт известность, подадим заявку снова. Подпись делается в GitHub
 Actions из исходников этого репозитория (`.github/workflows/release.yml`), подробно —
 [`docs/SIGNING.md`](docs/SIGNING.md).
 
